@@ -18,6 +18,7 @@
   "titleShape": "pill",
   "nanocoderShape": "tiny",
   "paste": {
-    "singleLineThreshold": 1000
-  }
+    "singleLineThreshold": 1200
+  },
+  "reasoningExpanded": true
 }

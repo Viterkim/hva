@@ -5,7 +5,7 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)"
 NANOCODER_DIR="${NANOCODER_CONFIG_DIR:-$HOME/.config/nanocoder}"
 
-mkdir -p "$NANOCODER_DIR/bin" "$NANOCODER_DIR/logs"
+mkdir -p "$NANOCODER_DIR/bin"
 
 cp -n "$ROOT/nanocoder/nanocoder-preferences.sample.json" "$ROOT/nanocoder/nanocoder-preferences.json"
 "$ROOT/nanocoder/render-agents-config.sh" "$ROOT/nanocoder/agents.config.json"

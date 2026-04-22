@@ -38,12 +38,12 @@ NANOCODER_CONFIG_DIR="$(mktemp -d)" ./internals/overwrite-local-confs.sh
 
 ## tools
 
-`./print-setup-instructions.sh local` prints exact pinned install commands from
-`docker/versions.env`, including optional GitHub MCP image pull. Install `clangd`
-through system package manager.
+`./print-setup-instructions.sh local` prints pinned install commands from
+`docker/versions.env`. Native Nanocoder uses the pinned npm release; Docker may
+use a newer GitHub commit. Install `clangd` through system package manager.
 
 Some MCP helpers install on first run through `npx -y` or `uvx`. Native mode needs
-network then. MCP stderr logs land in `~/.config/nanocoder/logs/`.
+network then. MCP stderr logs go to `/dev/null` unless `HVA_LOG_TOOL_OUTPUT=1`.
 
 ## run
 
@@ -55,5 +55,5 @@ nanocoder
 
 Stop: `hva --stop`.
 
-Keep `~/.config/nanocoder/mcp.env`, history, logs private. Keep repo-local
+Keep `~/.config/nanocoder/mcp.env`, history, and any logs private. Keep repo-local
 `nanocoder/agents.config.json` and `nanocoder/nanocoder-preferences.json` untracked.

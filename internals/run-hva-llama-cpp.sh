@@ -59,7 +59,14 @@ case "$LLAMA_NCMOE" in
     ;;
 esac
 
-env_validate_required
+llama_fit_args=(--fit on)
+if [[ -n "${LLAMA_AUTOFIT_TOKENS:-}" && "${LLAMA_AUTOFIT_TOKENS:-}" != "0" ]]; then
+  llama_fit_args+=(-fitt "$LLAMA_AUTOFIT_TOKENS")
+else
+  llama_fit_args+=(-ncmoe "$LLAMA_NCMOE")
+fi
+
+env_validate_common
 
 running_container_id() {
   "${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$"
@@ -73,7 +80,7 @@ case "$ACTION" in
   stop)
     if [[ -n "$(running_container_id)" ]]; then
       echo "stopping llama server: $LLAMA_CONTAINER"
-      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null
+      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
     else
       echo "llama server is not running: $LLAMA_CONTAINER"
     fi
@@ -99,23 +106,27 @@ case "$ACTION" in
     fi
     existing_id="$(container_id)"
     if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null
+      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
     fi
     ;;
   restart)
     LLAMA_DAEMON=1
     if [[ -n "$(running_container_id)" ]]; then
       echo "restarting llama server: $LLAMA_CONTAINER"
-      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null
+      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
     else
       echo "llama server is not running: $LLAMA_CONTAINER"
     fi
     existing_id="$(container_id)"
     if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null
+      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
     fi
     ;;
 esac
+
+env_validate_model
+
+: "${LLAMA_MODELS:?LLAMA_MODELS must be set by env/env-source.sh}"
 
 docker_args=(
   --rm
@@ -131,33 +142,38 @@ else
   docker_args=(-it "${docker_args[@]}")
 fi
 
-"${DOCKER[@]}" run "${docker_args[@]}" \
-  "$LLAMA_IMAGE" \
-  -m "/models/$LLAMA_MODEL" \
-  --alias "$LLAMA_MODEL_ALIAS" \
-  -ngl auto \
-  -ncmoe "$LLAMA_NCMOE" \
-  -c "$LLAMA_CONTEXT_SIZE" \
-  -np 1 \
-  -fa on \
-  -ctk q8_0 \
-  -ctv q8_0 \
-  --chat-template-kwargs '{"preserve_thinking": true}' \
-  --fit on \
-  --jinja \
-  --reasoning auto \
-  --reasoning-budget "$LLAMA_REASONING_BUDGET" \
-  --reasoning-format deepseek \
-  --reasoning-budget-message "Answer now, thought enough:" \
-  --checkpoint-every-n-tokens 4096 \
-  --ctx-checkpoints 128 \
-  --metrics \
-  --host 0.0.0.0 \
-  --port 8080 \
-  --temperature 0.6 \
-  --top-p 0.95 \
-  --top-k 20 \
-  --min-p 0.0 \
-  --presence-penalty 0.0 \
-  --repeat-penalty 1.0 \
-  "$@"
+run_llama() {
+  "${DOCKER[@]}" run "${docker_args[@]}" \
+    "$LLAMA_IMAGE" \
+    -m "/models/$LLAMA_MODEL" \
+    --alias "$LLAMA_MODEL_ALIAS" \
+    -c "$LLAMA_CONTEXT_SIZE" \
+    -ngl auto \
+    "${llama_fit_args[@]}" \
+    -np 1 \
+    -fa on \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --chat-template-kwargs '{"preserve_thinking": true, "enable_thinking": true}'  \
+    --jinja \
+    --reasoning auto \
+    --reasoning-budget "$LLAMA_REASONING_BUDGET" \
+    --reasoning-format deepseek \
+    --reasoning-budget-message "Answer now:" \
+    --metrics \
+    --host 0.0.0.0 \
+    --port 8080 \
+    --temperature 0.61 \
+    --top-p 0.94 \
+    --top-k 19 \
+    --min-p 0.0 \
+    --presence-penalty 0.0 \
+    --repeat-penalty 1.0 \
+    "$@"
+}
+
+if [[ "${LLAMA_DAEMON:-0}" == "1" ]]; then
+  run_llama "$@" >/dev/null
+else
+  run_llama "$@"
+fi

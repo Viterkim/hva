@@ -5,8 +5,17 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 HVA_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/../.." && pwd -P)"
 
 source "$HVA_ROOT/docker/versions.env"
+if [ -f "$HVA_ROOT/env/env-source.sh" ]; then
+  source "$HVA_ROOT/env/env-source.sh"
+fi
 
-log_file="${NANOCODER_MCP_PYPI_LOG:-$HOME/.config/nanocoder/logs/mcp-pypi.log}"
-mkdir -p "$(dirname "$log_file")"
+default_log="/dev/null"
+if [ "${HVA_LOG_TOOL_OUTPUT:-0}" = "1" ]; then
+  default_log="$HOME/.config/nanocoder/logs/mcp-pypi.log"
+fi
+log_file="${NANOCODER_MCP_PYPI_LOG:-$default_log}"
+if [ "$log_file" != "/dev/null" ]; then
+  mkdir -p "$(dirname "$log_file")"
+fi
 
 exec uvx --from "mcp-pypi==${HVA_V_MCP_PYPI_VERSION}" mcp-pypi stdio 2>>"$log_file"

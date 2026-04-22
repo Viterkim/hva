@@ -4,6 +4,37 @@ set -euo pipefail
 export NANOCODER_DEVELOPMENT_MODE="${NANOCODER_DEVELOPMENT_MODE:-yolo}"
 export NANOCODER_TRUST_CONTAINER="${NANOCODER_TRUST_CONTAINER:-1}"
 
+workspace_output_dir="${NANOCODER_WORKSPACE_OUTPUT_DIR:-/workspace/.nanocoder/output}"
+tool_output_dir="${NANOCODER_WORKSPACE_TOOL_OUTPUT_DIR:-$workspace_output_dir/tools}"
+
+: "${HVA_LOG_NANOCODER_OUTPUT:?HVA_LOG_NANOCODER_OUTPUT must be set to 0 or 1}"
+: "${HVA_LOG_TOOL_OUTPUT:?HVA_LOG_TOOL_OUTPUT must be set to 0 or 1}"
+
+if [ "$HVA_LOG_NANOCODER_OUTPUT" = "1" ]; then
+  mkdir -p "$workspace_output_dir"
+  export NANOCODER_LOG_TO_FILE="${NANOCODER_LOG_TO_FILE:-true}"
+  export NANOCODER_LOG_TO_CONSOLE="${NANOCODER_LOG_TO_CONSOLE:-false}"
+  export NANOCODER_LOG_DIR="${NANOCODER_LOG_DIR:-$workspace_output_dir}"
+  ln -sfn "nanocoder-$(date +%F).log" "$workspace_output_dir/nanocoder.txt"
+else
+  export NANOCODER_LOG_TO_FILE="${NANOCODER_LOG_TO_FILE:-false}"
+fi
+
+if [ "$HVA_LOG_TOOL_OUTPUT" = "1" ]; then
+  mkdir -p "$tool_output_dir"
+  export NANOCODER_GITHUB_MCP_LOG="${NANOCODER_GITHUB_MCP_LOG:-$tool_output_dir/github-mcp.log}"
+  export NANOCODER_MCP_RIPGREP_LOG="${NANOCODER_MCP_RIPGREP_LOG:-$tool_output_dir/mcp-ripgrep.log}"
+  export NANOCODER_MCP_PYPI_LOG="${NANOCODER_MCP_PYPI_LOG:-$tool_output_dir/mcp-pypi.log}"
+  export NANOCODER_MCP_NPM_SEARCH_LOG="${NANOCODER_MCP_NPM_SEARCH_LOG:-$tool_output_dir/npm-search-mcp.log}"
+  export NANOCODER_MCP_SEARXNG_LOG="${NANOCODER_MCP_SEARXNG_LOG:-$tool_output_dir/searxng-mcp.log}"
+else
+  export NANOCODER_GITHUB_MCP_LOG="${NANOCODER_GITHUB_MCP_LOG:-/dev/null}"
+  export NANOCODER_MCP_RIPGREP_LOG="${NANOCODER_MCP_RIPGREP_LOG:-/dev/null}"
+  export NANOCODER_MCP_PYPI_LOG="${NANOCODER_MCP_PYPI_LOG:-/dev/null}"
+  export NANOCODER_MCP_NPM_SEARCH_LOG="${NANOCODER_MCP_NPM_SEARCH_LOG:-/dev/null}"
+  export NANOCODER_MCP_SEARXNG_LOG="${NANOCODER_MCP_SEARXNG_LOG:-/dev/null}"
+fi
+
 config_dir="${NANOCODER_CONFIG_DIR:-$HOME/.config/nanocoder}"
 prefs="$config_dir/nanocoder-preferences.json"
 lsp_mask_dir="$config_dir/bin/lsp-mask"
@@ -24,8 +55,13 @@ if [ -z "${NANOCODER_MCPSERVERS:-}" ] && [ -f "$config_dir/.mcp.json" ]; then
     tr ',' '\n' <<< "$value" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d'
   }
 
+  # Always read from the mounted source so re-runs inside the same container
+  # don't try to parse our own compact jq output written on the first run.
+  mcp_source="/hva/nanocoder/.mcp.json"
+  [ -f "$mcp_source" ] || mcp_source="$config_dir/.mcp.json"
+
   all_mcp_servers="$(
-    sed -n '/"mcpServers"[[:space:]]*:[[:space:]]*{/,/^  }/p' "$config_dir/.mcp.json" \
+    sed -n '/"mcpServers"[[:space:]]*:[[:space:]]*{/,/^  }/p' "$mcp_source" \
       | sed -n 's/^    "\([^"]*\)"[[:space:]]*:[[:space:]]*{.*/\1/p' \
       | sort
   )"
@@ -77,7 +113,7 @@ if [ -z "${NANOCODER_MCPSERVERS:-}" ] && [ -f "$config_dir/.mcp.json" ]; then
     NANOCODER_MCPSERVERS="$(
       jq -c --argjson enabled_mcp "$enabled_mcp_json" '
         {mcpServers: (.mcpServers | with_entries(select(.key as $name | $enabled_mcp | index($name)) | .value.enabled = true))}
-      ' "$config_dir/.mcp.json"
+      ' "$mcp_source"
     )"
   fi
   printf '%s\n' "$NANOCODER_MCPSERVERS" > "$config_dir/.mcp.json"
@@ -106,4 +142,18 @@ else
 fi
 mv "$tmp_prefs" "$prefs"
 
-exec /usr/local/bin/nanocoder-real "$@"
+nanocoder_args=("$@")
+if /usr/local/bin/nanocoder-real --help 2>/dev/null | grep -q -- "--mode"; then
+  has_mode=0
+  for arg in "$@"; do
+    if [ "$arg" = "--mode" ] || [[ "$arg" == --mode=* ]]; then
+      has_mode=1
+      break
+    fi
+  done
+  if [ "$has_mode" -eq 0 ]; then
+    nanocoder_args=(--mode "$NANOCODER_DEVELOPMENT_MODE" "$@")
+  fi
+fi
+
+exec /usr/local/bin/nanocoder-real "${nanocoder_args[@]}"

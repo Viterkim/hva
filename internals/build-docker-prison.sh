@@ -63,6 +63,7 @@ DEV_IMAGE_SOURCE_HASH="$(
   {
     cd "$DOCKER_CONTEXT"
     find . -type f -print0 | sort -z | xargs -0 sha256sum
+    sha256sum "$VERSIONS_FILE" | awk '{print $1}'
     printf 'HVA_CSHARP=%s\n' "$HVA_CSHARP"
   } | sha256sum | awk '{print $1}'
 )"

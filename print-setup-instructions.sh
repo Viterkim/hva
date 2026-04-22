@@ -17,12 +17,12 @@ EOF
 
 print_docker() {
   cat <<EOF
-- Run command -
-cd "$ROOT" && mkdir -p models && "$ROOT/internals/sync-env-source.sh"
-
-- Put .gguf file in $ROOT/models -
-- Set LLAMA_MODEL in ./env/env-source.sh -
 - Add $ROOT/scripts to PATH -
+- Put a .gguf model in $ROOT/models/ -
+- Run 'hva' from any project -
+
+env/env-source.sh is created automatically on first run.
+LLAMA_MODEL is auto-detected when only one .gguf is present.
 EOF
 }
 
@@ -37,7 +37,7 @@ print_docker
 
 -- TOOLS --
 
-npm install -g "@nanocollective/nanocoder@$HVA_V_NANOCODER_VERSION"
+npm install -g "$HVA_V_NANOCODER_NPM_SPEC"
 cargo install rust-docs-mcp --version "$HVA_V_RUST_DOCS_MCP_VERSION"
 
 

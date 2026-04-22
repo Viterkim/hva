@@ -146,6 +146,11 @@ check_image() {
     printf "  %-40s %-18s %-18s %b\n" "$name" "$pinned_short" "$latest_short" "$status"
 }
 
+check_custom() {
+    local name="$1" pinned="$2"
+    printf "  %-40s %-18s %-18s %b\n" "$name" "$pinned" "custom" "${GREEN}ok${NC}"
+}
+
 printf "\n  %-40s %-18s %-18s\n" "package" "pinned" "latest"
 printf "  %-40s %-18s %-18s\n"   "-------" "------" "------"
 
@@ -154,6 +159,7 @@ echo "  images"
 check_image "ubuntu base image" "$HVA_V_UBUNTU_BASE_IMAGE" "$(fetch_container_digest "$HVA_V_UBUNTU_BASE_IMAGE")"
 check_image "llama.cpp server image" "$HVA_V_LLAMA_CPP_IMAGE" "$(fetch_container_digest "$HVA_V_LLAMA_CPP_IMAGE")"
 check_image "github-mcp-server image" "$HVA_V_GITHUB_MCP_SERVER_IMAGE" "$(fetch_container_digest "$HVA_V_GITHUB_MCP_SERVER_IMAGE")"
+check_image "searxng image"           "$HVA_V_SEARXNG_IMAGE"           "$(fetch_container_digest "$HVA_V_SEARXNG_IMAGE")"
 
 echo ""
 echo "  runtimes"
@@ -164,7 +170,8 @@ check "dotnet (channel)" "$HVA_V_DOTNET_CHANNEL" "$(fetch_dotnet_channel)"
 
 echo ""
 echo "  npm"
-check "nanocoder"                    "$HVA_V_NANOCODER_VERSION"          "$(fetch_npm @nanocollective/nanocoder)"
+check "nanocoder npm" "${HVA_V_NANOCODER_NPM_SPEC#@nanocollective/nanocoder@}" "$(fetch_npm @nanocollective/nanocoder)"
+check_custom "nanocoder docker spec" "$HVA_V_NANOCODER_SPEC"
 check "typescript"                   "$HVA_V_TYPESCRIPT_VERSION"         "$(fetch_npm typescript)"
 check "typescript-language-server"   "$HVA_V_TYPESCRIPT_LS_VERSION"      "$(fetch_npm typescript-language-server)"
 check "prettier"                     "$HVA_V_PRETTIER_VERSION"           "$(fetch_npm prettier)"
@@ -178,7 +185,7 @@ check "dockerfile-language-server"   "$HVA_V_DOCKERFILE_LS_VERSION"      "$(fetc
 check "brave-search-mcp-server"      "$HVA_V_BRAVE_SEARCH_MCP_VERSION"   "$(fetch_npm @brave/brave-search-mcp-server)"
 check "mcp-ripgrep"                  "$HVA_V_MCP_RIPGREP_VERSION"        "$(fetch_npm mcp-ripgrep)"
 check "npm-search-mcp-server"        "$HVA_V_NPM_SEARCH_MCP_VERSION"     "$(fetch_npm npm-search-mcp-server)"
-check "duckduckgo-mcp-server"        "$HVA_V_DUCKDUCKGO_MCP_VERSION"     "$(fetch_npm duckduckgo-mcp-server)"
+check "mcp-searxng"              "$HVA_V_SEARXNG_MCP_VERSION"        "$(fetch_npm mcp-searxng)"
 
 echo ""
 echo "  go"

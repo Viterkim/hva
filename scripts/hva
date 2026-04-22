@@ -10,8 +10,10 @@ usage() {
 Usage:
   hva                          start/reuse llama, enter workspace, open Nanocoder
   hva --bash                   enter workspace shell; does not wait for llama
-  hva --prompt TEXT            run one-shot Nanocoder prompt inside dev container
-  hva --prompt-file FILE       run one-shot Nanocoder prompt from file
+  hva --new                    start a fresh Nanocoder session (clears resume state)
+  hva --msg TEXT               one-shot Nanocoder message
+  hva --prompt TEXT            one-shot Nanocoder prompt (alias for --msg)
+  hva --prompt-file FILE       one-shot Nanocoder prompt from file
   hva --diff-review REV        review git diff from REV..HEAD
 
   hva --diff-review-branch BRANCH
@@ -21,7 +23,11 @@ Usage:
   hva --diff-review-staged     review staged git diff
   hva --diff-review-unstaged   review unstaged git diff
   hva --diff-review-all        review tracked + untracked git diff without touching real index
-  hva --stop                   stop the llama server container
+  hva --stop                   stop llama server and searxng
+  hva --start-searxng          start the SearXNG web search container
+  hva --stop-searxng           stop the SearXNG container only
+  hva --update                 pull latest hva, clear stale nanocoder cache
+  hva --reset-nanocoder-cache  clear cached nanocoder config (rebuilt on next run)
   hva --daemon                 start llama server as background daemon
   hva --healthcheck            compact llama health verdict
   hva --llama-cpp-update       update pinned llama.cpp image digest, then pull it
@@ -36,13 +42,25 @@ PROMPT_TEXT=""
 PROMPT_FILE=""
 DIFF_REVIEW_MODE=""
 DIFF_REVIEW_TARGET=""
+
+# --new is a pre-flag that can precede any other option
+if [[ "${1:-}" == "--new" ]]; then
+  HVA_NEW_SESSION=1
+  shift
+fi
+
 case "${1:-}" in
 
-  --stop)    MODE="stop";   shift ;;
+  --stop)    MODE="stop";         shift ;;
+  --start-searxng) MODE="start-searxng"; shift ;;
+  --stop-searxng)  MODE="stop-searxng";  shift ;;
+  --update)                exec "$HVA_ROOT/internals/update.sh" ;;
+  --new) HVA_NEW_SESSION=1; shift ;;
+  --reset-nanocoder-cache) MODE="reset-nanocoder-cache"; shift ;;
   --daemon)  MODE="daemon"; shift ;;
   --bash)    MODE="bash";   shift ;;
-  --prompt)
-    [[ $# -ge 2 ]] || { echo "--prompt requires text" >&2; exit 1; }
+  --msg|--prompt)
+    [[ $# -ge 2 ]] || { echo "$1 requires text" >&2; exit 1; }
     MODE="prompt"
     PROMPT_TEXT="$2"
     shift 2
@@ -101,15 +119,36 @@ case "${1:-}" in
 esac
 
 if [[ "$MODE" == "stop" ]]; then
-  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
+  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
+  exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+fi
+
+if [[ "$MODE" == "start-searxng" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-searxng.sh" start
+fi
+
+if [[ "$MODE" == "stop-searxng" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+fi
+
+if [[ ! -f "$HVA_ROOT/env/env-source.sh" ]]; then
+  echo "env/env-source.sh not found — creating from sample..."
+  "$HVA_ROOT/internals/sync-env-source.sh"
 fi
 
 source "$SCRIPT_DIR/../env/env-source.sh"
 source "$SCRIPT_DIR/../env/env-validate.sh"
+mkdir -p "$LLAMA_MODELS"
 env_validate_required
 
 if [[ "$MODE" == "daemon" ]]; then
   exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
+fi
+
+if [[ "$MODE" == "reset-nanocoder-cache" ]]; then
+  rm -rf "$HVA_ROOT/.hva-state/nanocoder-configs"
+  echo "nanocoder config cache cleared — fresh config will be written on next: hva"
+  exit 0
 fi
 
 DEV_IMAGE="hva-safeprison"
@@ -118,10 +157,6 @@ HVA_MODE="nanocoder"
 PROMPT_HOST_FILE=""
 PROMPT_CONTAINER_FILE="/tmp/hva-prompt.txt"
 PROMPT_FILE_TEMP=0
-
-if [[ "$MODE" == "prompt" || "$MODE" == "diff-review" ]]; then
-  HVA_MODE="nanocoder"
-fi
 
 if [[ "$MODE" == "bash" ]]; then
   HVA_MODE="bash"
@@ -134,6 +169,15 @@ if [[ $# -gt 0 && -d "$1" ]]; then
   shift
 fi
 WORKSPACE="$(realpath "$WORKSPACE")"
+
+# Session auto-resume state
+_HVA_SESSION_FILE="$WORKSPACE/.hva-state/nanocoder_session"
+_HVA_AUTO_RESUME_ID=""
+if [[ "${HVA_NEW_SESSION:-0}" == "1" ]]; then
+  rm -f "$_HVA_SESSION_FILE"
+elif [[ "$HVA_MODE" == "nanocoder" && -f "$_HVA_SESSION_FILE" ]]; then
+  _HVA_AUTO_RESUME_ID="$(tr -d '[:space:]' < "$_HVA_SESSION_FILE")"
+fi
 
 if [[ ! -d "$WORKSPACE" ]]; then
   echo "workspace does not exist: $WORKSPACE" >&2
@@ -266,7 +310,7 @@ ensure_llama_server() {
     action="restart"
   fi
 
-  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" "$action"
+  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" "$action" >/dev/null
 }
 
 print_llama_startup_failure() {
@@ -302,7 +346,6 @@ wait_for_llama_server() {
   fi
 
   if [[ "${HVA_WAIT_LLAMA:-1}" == "0" ]]; then
-    echo "skipping llama readiness wait because HVA_WAIT_LLAMA=0"
     return
   fi
 
@@ -315,21 +358,19 @@ wait_for_llama_server() {
     return
   fi
 
+  local first_check=1
   until curl -fsS --max-time 2 "$url" >/dev/null 2>&1; do
+    if (( first_check == 1 )); then
+      echo "waiting for llama server..."
+      first_check=0
+    fi
     if (( waited >= timeout )); then
       print_llama_startup_failure "$url" "$timeout"
       exit 1
     fi
-    if (( waited == 0 )); then
-      echo "waiting for llama server: $url"
-    fi
     sleep 2
     waited=$((waited + 2))
   done
-
-  if (( waited > 0 )); then
-    echo "llama server ready after ${waited}s"
-  fi
 }
 
 ensure_dev_image() {
@@ -339,6 +380,7 @@ ensure_dev_image() {
     {
       cd "$HVA_ROOT/docker"
       find . -type f -print0 | sort -z | xargs -0 sha256sum
+      sha256sum "$HVA_ROOT/docker/versions.env" | awk '{print $1}'
       printf 'HVA_CSHARP=%s\n' "$HVA_CSHARP"
     } | sha256sum | awk '{print $1}'
   )"
@@ -351,9 +393,8 @@ ensure_dev_image() {
   fi
 
   if [[ "$image_hash" != "$current_hash" ]]; then
-    echo "dev image is out of date: $DEV_IMAGE" >&2
-    echo "run: hva --build-docker-prison" >&2
-    exit 1
+    echo "dev image is out of date: $DEV_IMAGE — rebuilding..."
+    IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
   fi
 }
 
@@ -390,8 +431,31 @@ ensure_workspace_agents() {
   copied_agent_file=1
 }
 
+
+ensure_searxng_server() {
+  if [[ ",$HVA_MCP_ENABLED," != *",searxng,"* ]]; then
+    return
+  fi
+  "$HVA_ROOT/internals/run-hva-searxng.sh" start >/dev/null
+}
+
+print_services() {
+  if [[ "${HVA_SKIP_LLAMA:-0}" == "1" ]]; then
+    return
+  fi
+  local svc="llama:$LLAMA_HOST_PORT"
+  if [[ ",$HVA_MCP_ENABLED," == *",searxng,"* ]]; then
+    svc="$svc, searxng:${SEARXNG_HOST_PORT:-8888}"
+  fi
+  echo "services: $svc"
+}
+
 ensure_llama_server
+ensure_searxng_server
 wait_for_llama_server
+if [[ "$MODE" != "prompt" ]]; then
+  print_services
+fi
 ensure_dev_image
 ensure_workspace_agents
 
@@ -455,8 +519,15 @@ prepare_nanocoder_config() {
   mkdir -p "$NANOCODER_CONFIG_CACHE/bin" "$NANOCODER_CONFIG_CACHE/logs"
 
   install -m 0644 "$HVA_ROOT/nanocoder/.mcp.json" "$NANOCODER_CONFIG_CACHE/.mcp.json"
-  if [[ ! -e "$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json" ]]; then
-    install -m 0644 "$preferences_source" "$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json"
+
+  local prefs_dest="$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json"
+  if [[ ! -e "$prefs_dest" ]]; then
+    install -m 0644 "$preferences_source" "$prefs_dest"
+  elif command -v jq >/dev/null 2>&1; then
+    # merge: sample provides new keys/defaults, existing user prefs override
+    local merged
+    merged="$(jq -s '.[0] * .[1]' "$preferences_source" "$prefs_dest")" \
+      && printf '%s\n' "$merged" > "$prefs_dest"
   fi
   for helper in "$HVA_ROOT"/nanocoder/bin/*; do
     helper_name="$(basename "$helper")"
@@ -496,6 +567,7 @@ docker_args=(
   -v "$HVA_ROOT/docker/versions.env:/hva/docker/versions.env:ro"
   -v "$HVA_ROOT/internals/docker.sh:/hva/internals/docker.sh:ro"
   -v "$HVA_ROOT/docker/nanocoder-wrapper:/usr/local/bin/nanocoder:ro"
+  -v "$HVA_ROOT/internals/save-session.sh:/hva/internals/save-session.sh:ro"
   -w /workspace
   -e CARGO_NET_GIT_FETCH_WITH_CLI=true
   -e RUST_BACKTRACE=1
@@ -504,6 +576,7 @@ docker_args=(
   -e NANOCODER_DEVELOPMENT_MODE=yolo
   -e NANOCODER_TRUST_CONTAINER=1
   -e NANOCODER_CONTEXT_LIMIT="$LLAMA_CONTEXT_SIZE"
+  -e NANOCODER_DEFAULT_SHUTDOWN_TIMEOUT=500
 )
 
 passed_secret_envs=()
@@ -512,6 +585,8 @@ for env_name in \
   HVA_MCP_DISABLED \
   HVA_LSP_ENABLED \
   HVA_LSP_DISABLED \
+  HVA_LOG_NANOCODER_OUTPUT \
+  HVA_LOG_TOOL_OUTPUT \
   GITHUB_PERSONAL_ACCESS_TOKEN \
   GITHUB_TOKEN \
   BRAVE_API_KEY \
@@ -530,12 +605,16 @@ for env_name in \
     esac
     docker_args+=(-e "$env_name")
     case "$env_name" in
-      GITHUB_PERSONAL_ACCESS_TOKEN|BRAVE_API_KEY|HF_TOKEN|HUGGING_FACE_HUB_TOKEN)
+      GITHUB_PERSONAL_ACCESS_TOKEN|GITHUB_TOKEN|BRAVE_API_KEY|HF_TOKEN|HUGGING_FACE_HUB_TOKEN)
         passed_secret_envs+=("$env_name")
         ;;
     esac
   fi
 done
+
+if [[ -n "$_HVA_AUTO_RESUME_ID" ]]; then
+  docker_args+=(-e "NANOCODER_AUTO_RESUME=$_HVA_AUTO_RESUME_ID")
+fi
 
 if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
   docker_args+=(
@@ -594,17 +673,7 @@ run_nanocoder_init_if_needed() {
   fi
 
   echo "initializing Nanocoder workspace with /init"
-  init_docker_args=()
-  for ((i = 0; i < ${#docker_args[@]}; i++)); do
-    if [[ "${docker_args[$i]}" == "-e" && "${docker_args[$((i + 1))]-}" == NANOCODER_MCPSERVERS=* ]]; then
-      i=$((i + 1))
-      continue
-    fi
-    init_docker_args+=("${docker_args[$i]}")
-  done
-  init_docker_args+=(-e 'NANOCODER_MCPSERVERS={"mcpServers":{}}')
-
-  if ! "${DOCKER[@]}" run "${init_docker_args[@]}" "$DEV_IMAGE" nanocoder run "/init"; then
+  if ! "${DOCKER[@]}" run "${docker_args[@]}" -e 'NANOCODER_MCPSERVERS={"mcpServers":{}}' "$DEV_IMAGE" nanocoder run "/init"; then
     echo "warning: nanocoder /init failed; continuing into container" >&2
   fi
 }
@@ -624,9 +693,9 @@ if [[ $# -eq 0 ]]; then
       ;;
     nanocoder)
       if [[ -n "$PROMPT_HOST_FILE" ]]; then
-        set -- bash -lc 'nanocoder run "$(cat "$1")"' bash "$PROMPT_CONTAINER_FILE"
+        set -- bash -lc 'nanocoder run "$(cat "$1")"; /hva/internals/save-session.sh' bash "$PROMPT_CONTAINER_FILE"
       else
-        set -- bash -lc 'nanocoder; exec bash'
+        set -- bash -lc 'nanocoder; /hva/internals/save-session.sh'
       fi
       ;;
     *)
@@ -636,41 +705,38 @@ if [[ $# -eq 0 ]]; then
   esac
 fi
 
-echo "workspace: $WORKSPACE ($LLAMA_MODEL_ALIAS · $LLAMA_MODEL)"
-if (( copied_agent_file == 1 )); then
-  echo "AGENTS.md: copied from $HVA_ROOT/nanocoder/example-agent.md"
-elif (( had_agent_file == 1 )); then
-  agents_template="$HVA_ROOT/nanocoder/example-agent.md"
-  if [[ -f "$agents_template" && -f "$WORKSPACE/AGENTS.md" ]] && command -v sha256sum >/dev/null 2>&1; then
-    template_agents_sha="$(sha256sum "$agents_template" | awk '{print $1}')"
-    project_agents_sha="$(sha256sum "$WORKSPACE/AGENTS.md" | awk '{print $1}')"
-    if [[ "$template_agents_sha" == "$project_agents_sha" ]]; then
-      echo "AGENTS.md: project matches shared template"
-    else
-      echo "AGENTS.md: project file differs from shared template"
-      echo "  project sha256: $project_agents_sha"
-      echo "  shared sha256:  $template_agents_sha"
-      echo "  update command: cp \"$agents_template\" \"$WORKSPACE/AGENTS.md\""
-    fi
-  else
-    echo "AGENTS.md: project file exists"
-  fi
-else
-  if [[ "${HVA_COPY_AGENTS:-1}" == "0" ]]; then
-    echo "AGENTS.md: template copy disabled"
-  else
+if [[ "$MODE" != "prompt" ]]; then
+  # Compute AGENTS.md note for workspace line
+  _agents_note=""
+  if (( copied_agent_file == 1 )); then
+    _agents_note=" · AGENTS.md: copied"
+  elif (( had_agent_file == 1 )); then
     agents_template="$HVA_ROOT/nanocoder/example-agent.md"
-    echo "AGENTS.md: template missing: $agents_template"
+    if [[ -f "$agents_template" && -f "$WORKSPACE/AGENTS.md" ]] && command -v sha256sum >/dev/null 2>&1; then
+      template_agents_sha="$(sha256sum "$agents_template" | awk '{print $1}')"
+      project_agents_sha="$(sha256sum "$WORKSPACE/AGENTS.md" | awk '{print $1}')"
+      if [[ "$template_agents_sha" != "$project_agents_sha" ]]; then
+        _agents_note=" · AGENTS.md: differs (update: cp \"$agents_template\" \"$WORKSPACE/AGENTS.md\")"
+      fi
+    fi
   fi
-fi
-if (( ${#passed_secret_envs[@]} > 0 )); then
-  echo "secrets: ${passed_secret_envs[*]}"
-fi
-if [[ -n "$PROMPT_HOST_FILE" ]]; then
-  echo "prompt mode: $MODE"
-fi
-if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
-  echo "unsafe mode: SYS_PTRACE, seccomp=unconfined, docker socket"
+  echo "workspace: $WORKSPACE ($LLAMA_MODEL_ALIAS · $LLAMA_MODEL)$_agents_note"
+  if (( ${#passed_secret_envs[@]} > 0 )); then
+    echo "secrets: ${passed_secret_envs[*]}"
+  fi
+  if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
+    echo "unsafe mode: SYS_PTRACE, seccomp=unconfined, docker socket"
+  fi
 fi
 
 "${DOCKER[@]}" run "${docker_args[@]}" "$DEV_IMAGE" "$@"
+
+if [[ -t 1 && "${HVA_SKIP_LLAMA:-0}" != "1" && "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
+  if [[ ",$HVA_MCP_ENABLED," == *",searxng,"* ]]; then
+    echo "llama + searxng still running — stop with:"
+  else
+    echo "llama server still running — stop with:"
+  fi
+  echo "hva --stop"
+  echo
+fi

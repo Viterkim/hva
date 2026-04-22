@@ -5,10 +5,19 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 HVA_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/../.." && pwd -P)"
 
 source "$HVA_ROOT/docker/versions.env"
+if [ -f "$HVA_ROOT/env/env-source.sh" ]; then
+  source "$HVA_ROOT/env/env-source.sh"
+fi
 source "$HVA_ROOT/internals/docker.sh"
 
-log_file="${NANOCODER_GITHUB_MCP_LOG:-$HOME/.config/nanocoder/logs/github-mcp.log}"
-mkdir -p "$(dirname "$log_file")"
+default_log="/dev/null"
+if [ "${HVA_LOG_TOOL_OUTPUT:-0}" = "1" ]; then
+  default_log="$HOME/.config/nanocoder/logs/github-mcp.log"
+fi
+log_file="${NANOCODER_GITHUB_MCP_LOG:-$default_log}"
+if [ "$log_file" != "/dev/null" ]; then
+  mkdir -p "$(dirname "$log_file")"
+fi
 
 exec "${DOCKER[@]}" run -i --rm \
   -e GITHUB_PERSONAL_ACCESS_TOKEN \

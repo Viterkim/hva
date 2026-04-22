@@ -48,6 +48,11 @@ env_validate_common() {
     missing=1
   fi
 
+  if [[ -z "${LLAMA_AUTOFIT_TOKENS+x}" ]]; then
+    echo "LLAMA_AUTOFIT_TOKENS is not set" >&2
+    missing=1
+  fi
+
   if [[ -z "${HVA_MCP_ENABLED:-}" ]]; then
     echo "HVA_MCP_ENABLED is not set" >&2
     missing=1
@@ -58,7 +63,7 @@ env_validate_common() {
     missing=1
   fi
 
-  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_UNSAFE; do
+  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE; do
     if [[ -z "${!var+x}" ]]; then
       echo "$var is not set" >&2
       missing=1
@@ -70,7 +75,7 @@ env_validate_common() {
     exit 1
   fi
 
-  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_UNSAFE; do
+  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE; do
     case "${!var}" in
       0|1) ;;
       *) echo "$var must be 0 or 1: ${!var}" >&2; exit 1 ;;
@@ -105,6 +110,15 @@ env_validate_common() {
   case "${LLAMA_NCMOE:-}" in
     ''|*[!0-9]*)
       echo "LLAMA_NCMOE must be a number: ${LLAMA_NCMOE:-<unset>}" >&2
+      exit 1
+      ;;
+  esac
+
+  case "${LLAMA_AUTOFIT_TOKENS:-}" in
+    ''|0)
+      ;;
+    *[!0-9]*)
+      echo "LLAMA_AUTOFIT_TOKENS must be empty, 0, or a number: ${LLAMA_AUTOFIT_TOKENS}" >&2
       exit 1
       ;;
   esac
@@ -148,7 +162,22 @@ env_validate_model() {
 }
 
 env_validate_mcp_lists() {
-  local known_mcp="github ripgrep rust-docs pypi npm-search duckduckgo-search brave-search"
+  local hva_root
+  hva_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  local mcp_json="$hva_root/nanocoder/.mcp.json"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required for MCP validation" >&2
+    exit 1
+  fi
+  if [[ ! -f "$mcp_json" ]]; then
+    echo "MCP catalog not found: $mcp_json" >&2
+    exit 1
+  fi
+
+  local known_mcp
+  known_mcp="$(jq -r '.mcpServers | keys | join(" ")' "$mcp_json")"
+
   local combined_mcp=",$HVA_MCP_ENABLED,$HVA_MCP_DISABLED,"
   local seen_mcp=","
   local mcp_name

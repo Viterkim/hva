@@ -59,16 +59,27 @@ Docker mode runs Nanocoder in yolo mode and trusts container/workspace paths by
 default. Expect no approval prompts inside the dev container.
 
 Some MCP helpers install on first run through `npx -y` or `uvx`. First run needs
-network. MCP stderr logs land in `.hva-state/nanocoder-configs/shared/logs/`.
+network. Optional logs land in `.nanocoder/output/` inside each workspace when
+enabled:
+
+```text
+.nanocoder/output/nanocoder.txt
+.nanocoder/output/tools/*.log
+```
 
 ## commands
 
 - `hva`: Nanocoder in container
 - `hva --bash`: container shell, no llama wait
-- `hva --stop`: stop llama server
-- `hva --daemon`: start llama server as background daemon
-- `hva --prompt "text"`: one-shot Nanocoder run
+- `hva --msg "text"`: one-shot Nanocoder message
+- `hva --prompt "text"`: one-shot Nanocoder message (alias for --msg)
 - `hva --prompt-file /path/to/prompt.txt`: one-shot Nanocoder run from file
+- `hva --stop`: stop llama server and searxng
+- `hva --start-searxng`: start SearXNG web search container
+- `hva --stop-searxng`: stop SearXNG container only
+- `hva --update`: pull latest hva, clear stale nanocoder cache
+- `hva --reset-nanocoder-cache`: clear cached nanocoder config (rebuilt on next run)
+- `hva --daemon`: start llama server as background daemon
 - `hva --diff-review REV`: review `REV..HEAD`
 - `hva --diff-review-branch BRANCH`: review `merge-base(BRANCH, HEAD)..HEAD`
 - `hva --diff-review-main`: review `merge-base(main/master, HEAD)..HEAD`
@@ -95,6 +106,9 @@ LLAMA_HOST_PORT
 LLAMA_CONTEXT_SIZE
 LLAMA_REASONING_BUDGET
 LLAMA_NCMOE
+LLAMA_AUTOFIT_TOKENS   nonzero=use autofit target tokens; empty/0=use LLAMA_NCMOE
+HVA_V_NANOCODER_SPEC    Docker Nanocoder spec: npm package, git spec, or GitHub commit ref
+HVA_V_NANOCODER_NPM_SPEC Native Nanocoder npm release spec
 HVA_MCP_ENABLED
 HVA_MCP_DISABLED
 HVA_LSP_ENABLED
@@ -104,7 +118,14 @@ HVA_LOAD_MCP_ENV        1=load ~/.config/nanocoder/mcp.env (default 1)
 HVA_MOUNT_GITCONFIG     1=mount ~/.gitconfig into container (default 0)
 HVA_MOUNT_NVIM          1=mount ~/.config/nvim into container (default 0)
 HVA_MOUNT_SSH           1=mount ~/.ssh into container (default 0)
+HVA_LOG_NANOCODER_OUTPUT 1=write Nanocoder internal logs to workspace .nanocoder/output (default 0)
+HVA_LOG_TOOL_OUTPUT     1=write MCP stderr logs to workspace .nanocoder/output/tools (default 0)
 HVA_UNSAFE              1=SYS_PTRACE, seccomp=unconfined, docker socket (default 0)
+```
+
+```text
+SEARXNG_URL                URL for self-hosted SearXNG (default: http://host.docker.internal:8888)
+SEARXNG_HOST_PORT          host port for SearXNG container (default: 8888)
 ```
 
 One-run overrides:
@@ -114,12 +135,15 @@ HVA_RESTART_LLAMA=1
 HVA_REBUILD=1
 HVA_SKIP_LLAMA=1
 HVA_WAIT_LLAMA=0
+LLAMA_AUTOFIT_TOKENS=0
 HVA_COPY_AGENTS=0
 HVA_MOUNT_GITCONFIG=1
 HVA_MOUNT_NVIM=1
 HVA_INIT_WORKSPACE=1
 HVA_MOUNT_SSH=1
 HVA_LOAD_MCP_ENV=0
+HVA_LOG_NANOCODER_OUTPUT=1
+HVA_LOG_TOOL_OUTPUT=1
 HVA_UNSAFE=1               # SYS_PTRACE, seccomp=unconfined, docker socket (debuggers, docker-in-docker)
 HVA_ALLOW_SYSTEM_TMP_WORKSPACE=1
 HVA_LLAMA_WAIT_TIMEOUT=120

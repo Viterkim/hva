@@ -88,7 +88,13 @@ model_arg="$(jq -r '.[0].Args as $args | ($args | index("-m")) as $i | if $i == 
 alias_arg="$(jq -r '.[0].Args as $args | ($args | index("--alias")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 ctx_arg="$(jq -r '.[0].Args as $args | ($args | index("-c")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 ncmoe_arg="$(jq -r '.[0].Args as $args | ($args | index("-ncmoe")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+fit_arg="$(jq -r '.[0].Args as $args | ($args | index("--fit")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+fitt_arg="$(jq -r '.[0].Args as $args | ($args | index("-fitt")) as $i | if $i == null then "off" else $args[$i + 1] end' <<< "$inspect_json")"
 reasoning_budget_arg="$(jq -r '.[0].Args as $args | ($args | index("--reasoning-budget")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+temperature_arg="$(jq -r '.[0].Args as $args | ($args | index("--temperature")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+top_p_arg="$(jq -r '.[0].Args as $args | ($args | index("--top-p")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+top_k_arg="$(jq -r '.[0].Args as $args | ($args | index("--top-k")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
+min_p_arg="$(jq -r '.[0].Args as $args | ($args | index("--min-p")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 checkpoint_every_arg="$(jq -r '.[0].Args as $args | ($args | index("--checkpoint-every-n-tokens")) as $i | if $i == null then "missing" else $args[$i + 1] end' <<< "$inspect_json")"
 ctx_checkpoints_arg="$(jq -r '.[0].Args as $args | ($args | index("--ctx-checkpoints")) as $i | if $i == null then "missing" else $args[$i + 1] end' <<< "$inspect_json")"
 
@@ -175,7 +181,7 @@ fi
 verdict="OK"
 if (( bad_count > 0 )) || [[ "$api_status" != "ok" ]]; then
   verdict="BAD"
-elif (( truncated_count > 0 || cache_evict_count > 0 || checkpoint_erased_count > 0 || budget_exhausted_count > 0 )); then
+elif (( truncated_count > 0 || cache_evict_count > 0 || budget_exhausted_count > 0 )); then
   verdict="WARN"
 fi
 
@@ -184,7 +190,8 @@ echo "container: $LLAMA_CONTAINER ($container_status, started $container_started
 echo "image: $image"
 echo "api: http://127.0.0.1:$LLAMA_HOST_PORT/v1/models ($api_status, model $api_model)"
 echo "model: $model_arg (alias $alias_arg)"
-echo "flags: ctx=$ctx_arg ncmoe=$ncmoe_arg reasoning_budget=$reasoning_budget_arg checkpoint_every=$checkpoint_every_arg ctx_checkpoints=$ctx_checkpoints_arg"
+echo "flags: ctx=$ctx_arg fit=$fit_arg fitt=$fitt_arg ncmoe=$ncmoe_arg reasoning_budget=$reasoning_budget_arg checkpoint_every=$checkpoint_every_arg ctx_checkpoints=$ctx_checkpoints_arg"
+echo "sampling: temperature=$temperature_arg top_p=$top_p_arg top_k=$top_k_arg min_p=$min_p_arg"
 
 print_section "gpu"
 printf '%s\n' "$gpu_summary"

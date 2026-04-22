@@ -20,8 +20,7 @@
       "transport": "stdio",
       "command": "${HOME}/.config/nanocoder/bin/github-mcp-quiet",
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN:-}",
-        "NANOCODER_GITHUB_MCP_LOG": "${HOME}/.config/nanocoder/logs/github-mcp.log"
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN:-}"
       },
       "description": "Official GitHub MCP server, local Docker, read-only repository/code browsing.",
       "tags": [
@@ -65,8 +64,7 @@
       "transport": "stdio",
       "command": "${HOME}/.config/nanocoder/bin/mcp-pypi-quiet",
       "env": {
-        "MCP_PYPI_CACHE_DIR": "${HOME}/.cache/mcp-pypi",
-        "NANOCODER_MCP_PYPI_LOG": "${HOME}/.config/nanocoder/logs/mcp-pypi.log"
+        "MCP_PYPI_CACHE_DIR": "${HOME}/.cache/mcp-pypi"
       },
       "description": "PyPI package search, package metadata, requirements checks, and package safety context.",
       "tags": [
@@ -88,17 +86,19 @@
       ],
       "timeout": 60000
     },
-    "duckduckgo-search": {
-      "enabled": true,
+    "searxng": {
+      "enabled": false,
       "transport": "stdio",
-      "command": "${HOME}/.config/nanocoder/bin/duckduckgo-mcp-quiet",
-      "description": "Free web search fallback through DuckDuckGo.",
+      "command": "/hva/nanocoder/bin/searxng-mcp-quiet",
+      "env": {
+        "SEARXNG_URL": "${SEARXNG_URL:-http://host.docker.internal:8888}"
+      },
+      "description": "Web search and URL reading via a local self-hosted SearXNG instance (start with: hva --start-searxng).",
       "tags": [
         "search",
-        "web",
-        "fallback"
+        "web"
       ],
-      "timeout": 60000
+      "timeout": 30000
     }
   }
 }

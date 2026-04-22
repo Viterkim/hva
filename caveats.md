@@ -2,16 +2,16 @@
 
 ## Nanocoder patches
 
-- `docker/Dockerfile.safeprison` patches `@nanocollective/nanocoder` compiled JS directly with `sed` at build time
-- nanocoder has no official env var hooks for dev mode, auto-accept, or container trust — hence the patching
-- each patch verified with `grep -q`, so docker build fails loudly if they stop matching after a nanocoder update
-- if nanocoder updates and it breaks: rebuild, it'll fail on the grep, fix the sed targets
+- GitHub nanocoder specs build from source so unreleased commits work
+- `docker/Dockerfile.safeprison` patches compiled JS for container trust at build time
+- patches: `useDirectoryTrust.js` (container trust), `useAppHandlers.js` (session auto-resume), `useAppInitialization.js` (await MCP before ready signal for consistent system prompt)
+- each compiled patch is verified with `grep -q`, so docker build fails loudly if it stops matching after a nanocoder update
 
 ## C# LSP
 
 - csharp-ls is registered with nanocoder's LSP server discovery via the same sed mechanism
 - opt-in: `HVA_CSHARP=true hva --build-docker-prison` (off by default)
-- same caveat as above — more sed surface area for a narrow use case
+- same caveat as above: more sed surface area for a narrow use case
 - even when installed, `HVA_LSP_ENABLED` / `HVA_LSP_DISABLED` can still mask it at runtime
 
 ## Docker flags
@@ -23,6 +23,5 @@
 
 ## Host config mounts
 
-- `~/.gitconfig` and `~/.config/nvim` are no longer auto-mounted
 - opt-in with `HVA_MOUNT_GITCONFIG=1` and `HVA_MOUNT_NVIM=1`
-- `~/.ssh` stays opt-in through `HVA_MOUNT_SSH=1`
+- `~/.ssh` is opt-in through `HVA_MOUNT_SSH=1`

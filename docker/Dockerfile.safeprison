@@ -159,7 +159,7 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir "$FNM_D
     && npm config set fetch-retry-maxtimeout 120000 \
     && npm config set registry https://registry.npmjs.org/
 
-ARG HVA_V_NANOCODER_VERSION
+ARG HVA_V_NANOCODER_SPEC
 ARG HVA_V_TYPESCRIPT_VERSION
 ARG HVA_V_TYPESCRIPT_LS_VERSION
 ARG HVA_V_PRETTIER_VERSION
@@ -177,7 +177,6 @@ RUN --mount=type=cache,id=hva-npm-v2,mode=0777,uid=${USER_UID},gid=${USER_GID},s
     && fnm use "${HVA_V_NODE_VERSION}" \
     && for i in 1 2 3; do \
          npm install -g \
-           "@nanocollective/nanocoder@${HVA_V_NANOCODER_VERSION}" \
            "typescript@${HVA_V_TYPESCRIPT_VERSION}" \
            "typescript-language-server@${HVA_V_TYPESCRIPT_LS_VERSION}" \
            "prettier@${HVA_V_PRETTIER_VERSION}" \
@@ -188,9 +187,27 @@ RUN --mount=type=cache,id=hva-npm-v2,mode=0777,uid=${USER_UID},gid=${USER_GID},s
            "yaml-language-server@${HVA_V_YAML_LS_VERSION}" \
            "bash-language-server@${HVA_V_BASH_LS_VERSION}" \
            "dockerfile-language-server-nodejs@${HVA_V_DOCKERFILE_LS_VERSION}" && break; \
-         echo "nanocoder install failed, retry $i/3"; \
+         echo "npm tools install failed, retry $i/3"; \
          sleep 10; \
        done \
+    && if [[ "${HVA_V_NANOCODER_SPEC}" == github:Nano-Collective/nanocoder#* ]]; then \
+         nanocoder_ref="${HVA_V_NANOCODER_SPEC#github:Nano-Collective/nanocoder#}"; \
+         git clone --filter=blob:none --no-checkout https://github.com/Nano-Collective/nanocoder.git /tmp/nanocoder-src; \
+         git -C /tmp/nanocoder-src fetch --depth 1 origin "$nanocoder_ref"; \
+         git -C /tmp/nanocoder-src checkout FETCH_HEAD; \
+         cd /tmp/nanocoder-src; \
+         if [[ ! -f source/app/prompts/sections/task-approach-yolo.md ]]; then \
+           cp source/app/prompts/sections/task-approach-auto-accept.md source/app/prompts/sections/task-approach-yolo.md; \
+         fi; \
+         HUSKY=0 pnpm install --frozen-lockfile; \
+         pnpm run build; \
+         npm pack --ignore-scripts; \
+         npm install -g ./*.tgz; \
+         cd /workspace; \
+         rm -rf /tmp/nanocoder-src; \
+       else \
+         npm install -g "${HVA_V_NANOCODER_SPEC}"; \
+       fi \
     && node --version \
     && npm --version \
     && npm ls -g @nanocollective/nanocoder --depth=0
@@ -200,15 +217,13 @@ RUN set -eux; \
     eval "$(fnm env --shell bash)"; \
     fnm use "${HVA_V_NODE_VERSION}" >/dev/null; \
     pkg="$(npm root -g)/@nanocollective/nanocoder"; \
-    sed -i "s/const \\[developmentMode, setDevelopmentMode\\] = useState('normal');/const [developmentMode, setDevelopmentMode] = useState(process.env.NANOCODER_DEVELOPMENT_MODE || 'normal');/" "$pkg/dist/hooks/useAppState.js"; \
-    sed -i "s/let currentMode = 'normal';/let currentMode = process.env.NANOCODER_DEVELOPMENT_MODE || 'normal';/" "$pkg/dist/context/mode-context.js"; \
-    sed -i "s/setDevelopmentMode('auto-accept');/setDevelopmentMode(process.env.NANOCODER_DEVELOPMENT_MODE || 'auto-accept');/" "$pkg/dist/hooks/useNonInteractiveMode.js"; \
-    sed -i "s/setCurrentModeContext('auto-accept');/setCurrentModeContext(process.env.NANOCODER_DEVELOPMENT_MODE || 'auto-accept');/" "$pkg/dist/hooks/useNonInteractiveMode.js"; \
     sed -i "s/const trusted = trustedDirectories.some(trustedDir => path.resolve(trustedDir) === normalizedDirectory);/const trustContainer = process.env.NANOCODER_TRUST_CONTAINER === '1';\\n        const trusted = trustContainer || trustedDirectories.some(trustedDir => path.resolve(trustedDir) === normalizedDirectory);/" "$pkg/dist/hooks/useDirectoryTrust.js"; \
-    grep -q "NANOCODER_DEVELOPMENT_MODE" "$pkg/dist/hooks/useAppState.js"; \
-    grep -q "NANOCODER_DEVELOPMENT_MODE" "$pkg/dist/context/mode-context.js"; \
-    grep -q "NANOCODER_DEVELOPMENT_MODE" "$pkg/dist/hooks/useNonInteractiveMode.js"; \
     grep -q "trustContainer" "$pkg/dist/hooks/useDirectoryTrust.js"; \
+    sed -i "s|    // Message submit handler|    React.useEffect(()=>{const r=process.env.NANOCODER_AUTO_RESUME;if(r)(async()=>{try{await sessionManager.initialize();const ss=await sessionManager.listSessions({workingDirectory:process.cwd()});const so=[...ss].sort((a,b)=>new Date(b.lastAccessedAt)-new Date(a.lastAccessedAt));const id=r==='last'?so[0]?.id:r;if(id){const s=await sessionManager.loadSession(id);if(s)applySession(s);}}catch(_){}})();},[]); // hva-auto-resume\\n    // Message submit handler|" "$pkg/dist/hooks/useAppHandlers.js"; \
+    grep -q "hva-auto-resume" "$pkg/dist/hooks/useAppHandlers.js"; \
+    sed -zi 's/            setMcpInitialized(true);\n            setStartChat(true);/            setStartChat(true);/' "$pkg/dist/hooks/useAppInitialization.js"; \
+    sed -i 's/            void initializeMCPServers(newToolManager);/            await initializeMCPServers(newToolManager); \/\/ hva: wait for consistent system prompt/' "$pkg/dist/hooks/useAppInitialization.js"; \
+    grep -q "hva: wait for consistent" "$pkg/dist/hooks/useAppInitialization.js"; \
     if [[ "${HVA_CSHARP}" == "true" ]]; then \
         server_discovery="$pkg/dist/lsp/server-discovery.js"; \
         grep -q "    // JSON" "$server_discovery"; \
@@ -303,6 +318,8 @@ if [ -x "$FNM_DIR/fnm" ]; then
   export PATH="$FNM_DIR:$PATH"
   eval "$(fnm env --shell bash --use-on-cd)"
 fi
+# /usr/local/bin holds hva wrappers (nanocoder, etc.) that must win over fnm's bin
+export PATH="/usr/local/bin:$PATH"
 
 ranger-cd() {
   local tempfile="${HOME}/.rangerdir"
