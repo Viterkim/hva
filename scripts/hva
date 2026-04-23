@@ -141,6 +141,9 @@ source "$SCRIPT_DIR/../env/env-validate.sh"
 mkdir -p "$LLAMA_MODELS"
 env_validate_required
 
+LLAMA_NETWORK="${LLAMA_NETWORK:-nanocoder-net}"
+SEARXNG_CONTAINER="${SEARXNG_CONTAINER:-hva-searxng}"
+
 if [[ "$MODE" == "daemon" ]]; then
   exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
 fi
@@ -541,7 +544,7 @@ prepare_nanocoder_config() {
 dev_name="hva-dev-$safe_workspace_name-$$"
 prepare_nanocoder_config
 
-"$HVA_ROOT/nanocoder/render-agents-config.sh" "$NANOCODER_CONFIG_CACHE/agents.config.json" "http://host.docker.internal:$LLAMA_HOST_PORT/v1" >/dev/null
+"$HVA_ROOT/nanocoder/render-agents-config.sh" "$NANOCODER_CONFIG_CACHE/agents.config.json" "http://$LLAMA_CONTAINER:8080/v1" >/dev/null
 
 stdio_args=(-i)
 if [[ -t 0 && -t 1 ]]; then
@@ -553,6 +556,7 @@ docker_args=(
   "${stdio_args[@]}"
   --init
   --name "$dev_name"
+  --network "$LLAMA_NETWORK"
   --add-host host.docker.internal:host-gateway
   -v "$WORKSPACE:/workspace"
   -v "$CARGO_REGISTRY_CACHE:/home/$DEV_USER/.cargo/registry"
@@ -577,6 +581,7 @@ docker_args=(
   -e NANOCODER_TRUST_CONTAINER=1
   -e NANOCODER_CONTEXT_LIMIT="$LLAMA_CONTEXT_SIZE"
   -e NANOCODER_DEFAULT_SHUTDOWN_TIMEOUT=500
+  -e "SEARXNG_URL=http://$SEARXNG_CONTAINER:8080"
 )
 
 passed_secret_envs=()

@@ -24,6 +24,52 @@ esac
 
 LLAMA_IMAGE="$HVA_V_LLAMA_CPP_IMAGE"
 
+# ── Automatic GPU Detection ─────────────────────────────────────────────────
+detect_gpu_vendor() {
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+    echo "nvidia"
+    return
+  fi
+  if command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
+    echo "amd"
+    return
+  fi
+  if command -v clinfo &>/dev/null && clinfo 2>/dev/null | grep -qi "intel"; then
+    echo "intel"
+    return
+  fi
+  # Fallback: check /sys/class/drm
+  if [[ -d /sys/class/drm/card0 ]]; then
+    if grep -qi "nvidia" /sys/class/drm/card0/device/vendor 2>/dev/null; then
+      echo "nvidia"
+      return
+    fi
+    if grep -qi "amd" /sys/class/drm/card0/device/device 2>/dev/null; then
+      echo "amd"
+      return
+    fi
+    if grep -qi "intel" /sys/class/drm/card0/device/device 2>/dev/null; then
+      echo "intel"
+      return
+    fi
+  fi
+  echo ""
+}
+
+GPU_VENDOR="$(detect_gpu_vendor)"
+
+# ── Docker Network ──────────────────────────────────────────────────────────
+LLAMA_NETWORK="${LLAMA_NETWORK:-nanocoder-net}"
+
+ensure_network() {
+  if ! "${DOCKER[@]}" network inspect "$LLAMA_NETWORK" &>/dev/null; then
+    echo "Creating Docker network: $LLAMA_NETWORK"
+    "${DOCKER[@]}" network create "$LLAMA_NETWORK"
+  fi
+}
+
+ensure_network
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model)
@@ -128,11 +174,22 @@ env_validate_model
 
 : "${LLAMA_MODELS:?LLAMA_MODELS must be set by env/env-source.sh}"
 
+gpu_args=()
+gpu_vendor="${GPU_VENDOR:-}"
+if [[ -n "$gpu_vendor" ]]; then
+  case "$gpu_vendor" in
+    nvidia) gpu_args=(--device nvidia.com/gpu=all) ;;
+    amd)    gpu_args=(--device /dev/kfd --device /dev/dri --group-add video --group-add render) ;;
+    intel)  gpu_args=(--device /dev/dri --group-add video --group-add render) ;;
+  esac
+fi
+
 docker_args=(
   --rm
-  --gpus all
+  --network "$LLAMA_NETWORK"
   -p "$LLAMA_HOST_PORT:8080"
   -v "$LLAMA_MODELS:/models:ro"
+  "${gpu_args[@]}"
 )
 
 if [[ "${LLAMA_DAEMON:-0}" == "1" ]]; then

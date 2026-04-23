@@ -28,10 +28,12 @@ export HVA_LOG_TOOL_OUTPUT="0"
 # advanced
 export LLAMA_MODEL_ALIAS="local"
 export LLAMA_CONTAINER="hva-llama-server"
+export LLAMA_NETWORK="nanocoder-net"
 export LLAMA_HOST_PORT="8080"
 export LLAMA_REASONING_BUDGET="-1"
 export LLAMA_NCMOE="11"
 export LLAMA_AUTOFIT_TOKENS="1024"  # 0 = use LLAMA_NCMOE instead
+export SEARXNG_CONTAINER="hva-searxng"
 
 export HVA_COPY_AGENTS="${HVA_COPY_AGENTS:-1}"
 export HVA_LOAD_MCP_ENV="${HVA_LOAD_MCP_ENV:-1}"

@@ -12,6 +12,14 @@ SEARXNG_CONTAINER="${SEARXNG_CONTAINER:-hva-searxng}"
 SEARXNG_HOST_PORT="${SEARXNG_HOST_PORT:-8888}"
 SEARXNG_IMAGE="$HVA_V_SEARXNG_IMAGE"
 SETTINGS_FILE="$SCRIPT_DIR/searxng-settings.yml"
+LLAMA_NETWORK="${LLAMA_NETWORK:-nanocoder-net}"
+
+ensure_network() {
+  if ! "${DOCKER[@]}" network inspect "$LLAMA_NETWORK" >/dev/null 2>&1; then
+    echo "Creating Docker network: $LLAMA_NETWORK"
+    "${DOCKER[@]}" network create "$LLAMA_NETWORK" >/dev/null
+  fi
+}
 
 running_container_id() {
   "${DOCKER[@]}" ps -q --filter "name=^/$SEARXNG_CONTAINER$"
@@ -25,6 +33,7 @@ ACTION="${1:-start}"
 
 case "$ACTION" in
   start)
+    ensure_network
     if [[ -n "$(running_container_id)" ]]; then
       echo "searxng already running: $SEARXNG_CONTAINER"
       exit 0
@@ -36,6 +45,7 @@ case "$ACTION" in
     echo "starting searxng: $SEARXNG_CONTAINER on port $SEARXNG_HOST_PORT"
     "${DOCKER[@]}" run -d \
       --name "$SEARXNG_CONTAINER" \
+      --network "$LLAMA_NETWORK" \
       -p "$SEARXNG_HOST_PORT:8080" \
       -v "$SETTINGS_FILE:/etc/searxng/settings.yml:ro" \
       "$SEARXNG_IMAGE" >/dev/null
