@@ -17,13 +17,14 @@ echo "pulling latest changes..."
 git pull --ff-only
 echo ""
 
-# clear nanocoder config cache so stale preferences/mcp get rebuilt on next run
+echo "syncing env/env-source.sh with new sample vars..."
+"$HVA_ROOT/internals/sync-env-source.sh"
+echo ""
+
 if [[ -d "$NANOCODER_CONFIG_ROOT" ]]; then
-  echo "clearing nanocoder config cache..."
-  rm -rf "$NANOCODER_CONFIG_ROOT"
-  echo "done — fresh config will be written on next: hva"
+  echo "nanocoder config cache is versioned now — stale config will auto-refresh on next: hva"
 else
-  echo "nanocoder config cache already clean"
+  echo "nanocoder config cache will be created fresh on next: hva"
 fi
 echo ""
 

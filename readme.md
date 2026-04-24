@@ -30,7 +30,7 @@ hva
 - `hva --stop`: stop llama server and searxng
 - `hva --start-searxng`: start SearXNG web search container
 - `hva --stop-searxng`: stop SearXNG container only
-- `hva --update`: pull latest hva, clear stale nanocoder cache
+- `hva --update`: pull latest hva, sync env vars, auto-refresh managed config
 - `hva --reset-nanocoder-cache`: clear cached nanocoder config
 - `hva --daemon`: start llama server in background
 - `hva --healthcheck`: compact llama health verdict
@@ -38,6 +38,44 @@ hva
 - `hva --build-docker-prison`: build dev image if missing/outdated (`--force` to rebuild anyway)
 - `hva --check-versions`: check pinned vs latest upstream versions
 - `hva --llama-cpp-update`: update pinned llama.cpp image digest, then pull it
+- `hva --loop`: run `tasks.md` in the workspace root through one long-lived container
+- `hva --loop-init`: create a root `tasks.md` template with loop settings
+- `hva --loop-stop`: ask the current loop to stop after the running iteration
+- `hva --loop-status`: show the current loop state from `.hva-state/loop/status`
+
+## Loop Mode
+
+`hva --loop` always reads `tasks.md` from the workspace root. Use `hva --loop-init`
+to create the standard file. The dumb standard is:
+
+- `loop_hours`
+- `loop_minutes`
+- `loop_max_iterations`
+- `loop_review`
+- `loop_improve`
+
+Loose bullets or numbered steps are allowed. The first loop pass will try to
+normalize them into checkbox tasks before working. When the time limit runs
+out, the loop finishes the current iteration and stops before the next one.
+
+## Managed AGENTS
+
+By default `hva` manages `AGENTS.md` for each workspace:
+
+- absent `AGENTS.md` -> create a managed symlink
+- old hva-generated copy -> migrate it to the managed symlink
+- custom `AGENTS.md` -> leave it alone
+- extra local tweaks -> put them in `AGENTS.local.md`
+
+Generated workspace files are added to `.git/info/exclude` when possible so
+they stop cluttering `git status`.
+
+## Qwen3.6 Defaults
+
+The llama wrapper now exposes sampling and thinking flags through
+`env/env-source.sh`. The default profile matches Qwen3.6 thinking-mode guidance
+for precise coding work: thinking enabled, preserve thinking enabled,
+`temperature=0.6`, `top_p=0.95`, `top_k=20`, `min_p=0`, `presence_penalty=0`.
 
 ## More Info
 

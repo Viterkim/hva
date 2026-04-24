@@ -26,7 +26,7 @@ Usage:
   hva --stop                   stop llama server and searxng
   hva --start-searxng          start the SearXNG web search container
   hva --stop-searxng           stop the SearXNG container only
-  hva --update                 pull latest hva, clear stale nanocoder cache
+  hva --update                 pull latest hva, sync env vars, keep versioned config cache
   hva --reset-nanocoder-cache  clear cached nanocoder config (rebuilt on next run)
   hva --daemon                 start llama server as background daemon
   hva --healthcheck            compact llama health verdict
@@ -34,6 +34,11 @@ Usage:
   hva --llama-cpp-logs-full    print full llama server container logs
   hva --build-docker-prison    build dev image if missing/outdated (--force to rebuild anyway)
   hva --check-versions         check pinned vs latest upstream versions
+  hva --loop [WORKSPACE]       run Nanocoder loop mode using WORKSPACE/tasks.md
+  hva --loop-init [WORKSPACE]  create a tasks.md template in workspace root
+  hva --loop-stop [WORKSPACE]  ask a running loop to stop after this iteration
+  hva --loop-status [WORKSPACE]
+                               print current loop status from workspace state
 EOF
 }
 
@@ -52,6 +57,10 @@ fi
 case "${1:-}" in
 
   --stop)    MODE="stop";         shift ;;
+  --loop)    MODE="loop";         shift ;;
+  --loop-init) MODE="loop-init"; shift ;;
+  --loop-stop) MODE="loop-stop"; shift ;;
+  --loop-status) MODE="loop-status"; shift ;;
   --start-searxng) MODE="start-searxng"; shift ;;
   --stop-searxng)  MODE="stop-searxng";  shift ;;
   --update)                exec "$HVA_ROOT/internals/update.sh" ;;
@@ -131,20 +140,6 @@ if [[ "$MODE" == "stop-searxng" ]]; then
   exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
 fi
 
-if [[ ! -f "$HVA_ROOT/env/env-source.sh" ]]; then
-  echo "env/env-source.sh not found — creating from sample..."
-  "$HVA_ROOT/internals/sync-env-source.sh"
-fi
-
-source "$SCRIPT_DIR/../env/env-source.sh"
-source "$SCRIPT_DIR/../env/env-validate.sh"
-mkdir -p "$LLAMA_MODELS"
-env_validate_required
-
-if [[ "$MODE" == "daemon" ]]; then
-  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
-fi
-
 if [[ "$MODE" == "reset-nanocoder-cache" ]]; then
   rm -rf "$HVA_ROOT/.hva-state/nanocoder-configs"
   echo "nanocoder config cache cleared — fresh config will be written on next: hva"
@@ -193,6 +188,219 @@ case "$WORKSPACE" in
     fi
     ;;
 esac
+
+if [[ "$MODE" == "loop" || "$MODE" == "loop-init" || "$MODE" == "loop-stop" || "$MODE" == "loop-status" ]]; then
+  if [[ $# -gt 0 ]]; then
+    echo "unexpected argument for $MODE: $1" >&2
+    usage >&2
+    exit 1
+  fi
+fi
+
+LOOP_TASK_FILE="$WORKSPACE/tasks.md"
+LOOP_STATE_DIR="$WORKSPACE/.hva-state/loop"
+WORKSPACE_STATE_ROOT="$WORKSPACE/.hva-state"
+WORKSPACE_MANAGED_ROOT="$WORKSPACE_STATE_ROOT/managed"
+WORKSPACE_AGENTS_PATH="$WORKSPACE/AGENTS.md"
+WORKSPACE_AGENTS_LOCAL="$WORKSPACE/AGENTS.local.md"
+WORKSPACE_MANAGED_AGENTS="$WORKSPACE_MANAGED_ROOT/AGENTS.md"
+
+if [[ -z "${HVA_MANAGE_AGENTS+x}" && -n "${HVA_COPY_AGENTS+x}" ]]; then
+  HVA_MANAGE_AGENTS="$HVA_COPY_AGENTS"
+fi
+HVA_MANAGE_AGENTS="${HVA_MANAGE_AGENTS:-1}"
+
+create_loop_tasks_file() {
+  local template="$HVA_ROOT/nanocoder/tasks-template.md"
+
+  if [[ ! -f "$template" ]]; then
+    echo "tasks template missing: $template" >&2
+    exit 1
+  fi
+
+  if [[ -e "$LOOP_TASK_FILE" ]]; then
+    echo "tasks.md already exists: $LOOP_TASK_FILE"
+    return
+  fi
+
+  install -D -m 0644 "$template" "$LOOP_TASK_FILE"
+  echo "created: $LOOP_TASK_FILE"
+}
+
+workspace_agents_looks_managed_copy() {
+  [[ -f "$WORKSPACE_AGENTS_PATH" && ! -L "$WORKSPACE_AGENTS_PATH" ]] || return 1
+  if grep -Fq 'Inside Docker. cwd is `/workspace`.' "$WORKSPACE_AGENTS_PATH" &&
+    grep -Fq 'The `/workspace` name is generic, not the repo name.' "$WORKSPACE_AGENTS_PATH" &&
+    grep -Fq 'Loop mode: read `/workspace/tasks.md`' "$WORKSPACE_AGENTS_PATH"; then
+    return 0
+  fi
+
+  grep -Fq 'You are running INSIDE a Docker container.' "$WORKSPACE_AGENTS_PATH" &&
+    grep -Fq 'The `/workspace` folder name is generic' "$WORKSPACE_AGENTS_PATH" &&
+    grep -Fq 'When running `hva --loop`, read `/workspace/tasks.md`' "$WORKSPACE_AGENTS_PATH"
+}
+
+render_workspace_agents() {
+  local template="$HVA_ROOT/nanocoder/AGENT-example.md"
+  local tmp
+
+  if [[ ! -f "$template" ]]; then
+    echo "agent template missing: $template" >&2
+    exit 1
+  fi
+
+  mkdir -p "$WORKSPACE_MANAGED_ROOT"
+  tmp="$(mktemp "$WORKSPACE_MANAGED_ROOT/AGENTS.md.XXXXXX")"
+  cat "$template" > "$tmp"
+
+  if [[ -f "$WORKSPACE_AGENTS_LOCAL" ]]; then
+    {
+      echo
+      echo "## Local"
+      cat "$WORKSPACE_AGENTS_LOCAL"
+    } >> "$tmp"
+  fi
+
+  mv "$tmp" "$WORKSPACE_MANAGED_AGENTS"
+}
+
+linked_agent_file=0
+migrated_agent_file=0
+custom_agent_file=0
+
+ensure_workspace_git_exclude() {
+  local git_dir exclude_file pattern
+
+  if ! git_dir="$(git -C "$WORKSPACE" rev-parse --git-dir 2>/dev/null)"; then
+    return
+  fi
+
+  exclude_file="$WORKSPACE/$git_dir/info/exclude"
+  mkdir -p "$(dirname "$exclude_file")"
+  touch "$exclude_file"
+
+  for pattern in "/.hva-state/" "/.nanocoder/"; do
+    if ! grep -Fqx "$pattern" "$exclude_file" 2>/dev/null; then
+      printf '%s\n' "$pattern" >> "$exclude_file"
+    fi
+  done
+
+  if (( linked_agent_file == 1 || migrated_agent_file == 1 )); then
+    if ! grep -Fqx "/AGENTS.md" "$exclude_file" 2>/dev/null; then
+      printf '%s\n' "/AGENTS.md" >> "$exclude_file"
+    fi
+  fi
+}
+
+ensure_workspace_agents() {
+  local managed_link_target=".hva-state/managed/AGENTS.md"
+  local current_target backup_path
+
+  if [[ "$HVA_MANAGE_AGENTS" != "1" ]]; then
+    return
+  fi
+
+  render_workspace_agents
+
+  if [[ -L "$WORKSPACE_AGENTS_PATH" ]]; then
+    current_target="$(readlink "$WORKSPACE_AGENTS_PATH" || true)"
+    if [[ "$current_target" == "$managed_link_target" || "$current_target" == ".hva-state/AGENTS.md" ]]; then
+      ln -sfn "$managed_link_target" "$WORKSPACE_AGENTS_PATH"
+      linked_agent_file=1
+      return
+    fi
+    custom_agent_file=1
+    return
+  fi
+
+  if [[ ! -e "$WORKSPACE_AGENTS_PATH" ]]; then
+    ln -sfn "$managed_link_target" "$WORKSPACE_AGENTS_PATH"
+    linked_agent_file=1
+    return
+  fi
+
+  if workspace_agents_looks_managed_copy; then
+    mkdir -p "$WORKSPACE_MANAGED_ROOT/backups"
+    backup_path="$WORKSPACE_MANAGED_ROOT/backups/AGENTS.$(date +%Y%m%d-%H%M%S).md"
+    cp "$WORKSPACE_AGENTS_PATH" "$backup_path"
+    rm -f "$WORKSPACE_AGENTS_PATH"
+    ln -sfn "$managed_link_target" "$WORKSPACE_AGENTS_PATH"
+    migrated_agent_file=1
+    return
+  fi
+
+  custom_agent_file=1
+}
+
+print_loop_status() {
+  local status_file="$LOOP_STATE_DIR/status"
+  local stop_file="$LOOP_STATE_DIR/stop"
+
+  if [[ -f "$status_file" ]]; then
+    cat "$status_file"
+    return
+  fi
+
+  if [[ -f "$stop_file" ]]; then
+    echo "state: stop_requested"
+    echo "workspace: $WORKSPACE"
+    echo "task_file: $LOOP_TASK_FILE"
+    return
+  fi
+
+  echo "state: idle"
+  echo "workspace: $WORKSPACE"
+  echo "task_file: $LOOP_TASK_FILE"
+}
+
+case "$MODE" in
+  loop-init)
+    if [[ ! -f "$HVA_ROOT/env/env-source.sh" ]]; then
+      echo "env/env-source.sh not found — creating from sample..."
+      "$HVA_ROOT/internals/sync-env-source.sh"
+    fi
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/../env/env-source.sh"
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/../env/env-validate.sh"
+    env_apply_defaults
+    ensure_workspace_agents
+    ensure_workspace_git_exclude
+    create_loop_tasks_file
+    exit 0
+    ;;
+  loop-stop)
+    mkdir -p "$LOOP_STATE_DIR"
+    : > "$LOOP_STATE_DIR/stop"
+    echo "loop stop requested: $LOOP_STATE_DIR/stop"
+    exit 0
+    ;;
+  loop-status)
+    print_loop_status
+    exit 0
+    ;;
+  loop)
+    if [[ ! -f "$LOOP_TASK_FILE" ]]; then
+      echo "tasks.md not found in workspace: $LOOP_TASK_FILE" >&2
+      echo "Create one with: hva --loop-init" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+if [[ ! -f "$HVA_ROOT/env/env-source.sh" ]]; then
+  echo "env/env-source.sh not found — creating from sample..."
+  "$HVA_ROOT/internals/sync-env-source.sh"
+fi
+
+source "$SCRIPT_DIR/../env/env-source.sh"
+source "$SCRIPT_DIR/../env/env-validate.sh"
+mkdir -p "$LLAMA_MODELS"
+env_validate_required
+
+if [[ "$MODE" == "daemon" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
+fi
 
 cleanup() {
   if [[ "$PROMPT_FILE_TEMP" == "1" && -n "$PROMPT_HOST_FILE" && -f "$PROMPT_HOST_FILE" ]]; then
@@ -398,40 +606,6 @@ ensure_dev_image() {
   fi
 }
 
-workspace_has_agent_file() {
-  [[ -e "$WORKSPACE/AGENTS.md" ]]
-}
-
-had_agent_file=0
-copied_agent_file=0
-if workspace_has_agent_file; then
-  had_agent_file=1
-fi
-
-ensure_workspace_agents() {
-  if [[ "${HVA_COPY_AGENTS:-1}" == "0" ]]; then
-    return
-  fi
-
-  local template="$HVA_ROOT/nanocoder/example-agent.md"
-
-  if (( had_agent_file == 1 )); then
-    return
-  fi
-
-  if [[ ! -f "$template" ]]; then
-    echo "agent template missing: $template" >&2
-    exit 1
-  fi
-
-  if ! install -m 0644 "$template" "$WORKSPACE/AGENTS.md"; then
-    echo "failed to copy AGENTS.md from template: $template" >&2
-    exit 1
-  fi
-  copied_agent_file=1
-}
-
-
 ensure_searxng_server() {
   if [[ ",$HVA_MCP_ENABLED," != *",searxng,"* ]]; then
     return
@@ -458,6 +632,7 @@ if [[ "$MODE" != "prompt" ]]; then
 fi
 ensure_dev_image
 ensure_workspace_agents
+ensure_workspace_git_exclude
 
 STATE_ROOT="$HVA_ROOT/.hva-state"
 mkdir -p "$STATE_ROOT"
@@ -506,12 +681,44 @@ if [[ -z "$safe_workspace_name" ]]; then
 fi
 
 workspace_hash="$(printf '%s' "$WORKSPACE" | sha256sum | awk '{print substr($1, 1, 16)}')"
-NANOCODER_CONFIG_CACHE="$NANOCODER_CONFIG_ROOT/shared"
+compute_nanocoder_config_hash() {
+  (
+    find "$HVA_ROOT/nanocoder" -type f -print0 | sort -z | xargs -0 sha256sum
+    sha256sum \
+      "$HVA_ROOT/docker/nanocoder-wrapper" \
+      "$HVA_ROOT/internals/nanocoder-loop.sh" \
+      "$HVA_ROOT/env/env-source-sample.sh"
+  ) | sha256sum | awk '{print $1}'
+}
+
+prune_versioned_state_dirs() {
+  local root="$1"
+  local keep="${2:-4}"
+  local entry count=0
+
+  [[ -d "$root" ]] || return
+
+  while IFS= read -r entry; do
+    count=$((count + 1))
+    if (( count > keep )); then
+      rm -rf "$root/$entry"
+    fi
+  done < <(
+    find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' 2>/dev/null \
+      | sort -nr \
+      | awk '{print $2}'
+  )
+}
+
+NANOCODER_CONFIG_VERSION="$(compute_nanocoder_config_hash)"
+NANOCODER_CONFIG_CACHE="$NANOCODER_CONFIG_ROOT/$NANOCODER_CONFIG_VERSION"
+NANOCODER_CONFIG_LATEST="$NANOCODER_CONFIG_ROOT/latest"
 NANOCODER_DATA_CACHE="$NANOCODER_DATA_ROOT/$safe_workspace_name-$workspace_hash"
 mkdir -p "$NANOCODER_DATA_CACHE"
 
 prepare_nanocoder_config() {
   local preferences_source="$HVA_ROOT/nanocoder/nanocoder-preferences.sample.json"
+  local previous_dir="" previous_prefs="" merged="" prefs_dest=""
   if [[ -f "$HVA_ROOT/nanocoder/nanocoder-preferences.json" ]]; then
     preferences_source="$HVA_ROOT/nanocoder/nanocoder-preferences.json"
   fi
@@ -520,12 +727,25 @@ prepare_nanocoder_config() {
 
   install -m 0644 "$HVA_ROOT/nanocoder/.mcp.json" "$NANOCODER_CONFIG_CACHE/.mcp.json"
 
-  local prefs_dest="$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json"
+  if [[ -L "$NANOCODER_CONFIG_LATEST" ]]; then
+    previous_dir="$(readlink -f "$NANOCODER_CONFIG_LATEST" 2>/dev/null || true)"
+  fi
+  if [[ -n "$previous_dir" && "$previous_dir" != "$NANOCODER_CONFIG_CACHE" && -f "$previous_dir/nanocoder-preferences.json" ]]; then
+    previous_prefs="$previous_dir/nanocoder-preferences.json"
+  fi
+
+  prefs_dest="$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json"
   if [[ ! -e "$prefs_dest" ]]; then
-    install -m 0644 "$preferences_source" "$prefs_dest"
+    if [[ -n "$previous_prefs" ]] && command -v jq >/dev/null 2>&1; then
+      merged="$(jq -s '.[0] * .[1]' "$preferences_source" "$previous_prefs")" \
+        && printf '%s\n' "$merged" > "$prefs_dest"
+    elif [[ -n "$previous_prefs" ]]; then
+      install -m 0644 "$previous_prefs" "$prefs_dest"
+    else
+      install -m 0644 "$preferences_source" "$prefs_dest"
+    fi
   elif command -v jq >/dev/null 2>&1; then
     # merge: sample provides new keys/defaults, existing user prefs override
-    local merged
     merged="$(jq -s '.[0] * .[1]' "$preferences_source" "$prefs_dest")" \
       && printf '%s\n' "$merged" > "$prefs_dest"
   fi
@@ -536,6 +756,8 @@ prepare_nanocoder_config() {
   done
 
   "$HVA_ROOT/nanocoder/render-lsp-mask.sh" "$NANOCODER_CONFIG_CACHE/bin/lsp-mask" >/dev/null
+  ln -sfn "$NANOCODER_CONFIG_CACHE" "$NANOCODER_CONFIG_LATEST"
+  prune_versioned_state_dirs "$NANOCODER_CONFIG_ROOT" 4
 }
 
 dev_name="hva-dev-$safe_workspace_name-$$"
@@ -567,6 +789,7 @@ docker_args=(
   -v "$HVA_ROOT/docker/versions.env:/hva/docker/versions.env:ro"
   -v "$HVA_ROOT/internals/docker.sh:/hva/internals/docker.sh:ro"
   -v "$HVA_ROOT/docker/nanocoder-wrapper:/usr/local/bin/nanocoder:ro"
+  -v "$HVA_ROOT/internals/nanocoder-loop.sh:/hva/internals/nanocoder-loop.sh:ro"
   -v "$HVA_ROOT/internals/save-session.sh:/hva/internals/save-session.sh:ro"
   -w /workspace
   -e CARGO_NET_GIT_FETCH_WITH_CLI=true
@@ -578,6 +801,16 @@ docker_args=(
   -e NANOCODER_CONTEXT_LIMIT="$LLAMA_CONTEXT_SIZE"
   -e NANOCODER_DEFAULT_SHUTDOWN_TIMEOUT=500
 )
+
+if [[ "$MODE" == "loop" ]]; then
+  docker_args+=(
+    -e HVA_LOOP_TASK_FILE="/workspace/tasks.md"
+    -e HVA_LOOP_STATE_DIR="/workspace/.hva-state/loop"
+  )
+  if [[ "${HVA_NEW_SESSION:-0}" == "1" ]]; then
+    docker_args+=(-e HVA_LOOP_NEW_SESSION=1)
+  fi
+fi
 
 passed_secret_envs=()
 for env_name in \
@@ -687,38 +920,41 @@ if [[ -n "$PROMPT_HOST_FILE" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-  case "$HVA_MODE" in
-    bash)
-      set -- bash
-      ;;
-    nanocoder)
-      if [[ -n "$PROMPT_HOST_FILE" ]]; then
-        set -- bash -lc 'nanocoder run "$(cat "$1")"; /hva/internals/save-session.sh' bash "$PROMPT_CONTAINER_FILE"
-      else
-        set -- bash -lc 'nanocoder; /hva/internals/save-session.sh'
-      fi
-      ;;
-    *)
-      echo "unknown HVA_MODE: $HVA_MODE" >&2
-      exit 1
-      ;;
-  esac
+  if [[ "$MODE" == "loop" ]]; then
+    set -- bash -lc 'nanocoder --loop; /hva/internals/save-session.sh'
+  else
+    case "$HVA_MODE" in
+      bash)
+        set -- bash
+        ;;
+      nanocoder)
+        if [[ -n "$PROMPT_HOST_FILE" ]]; then
+          set -- bash -lc 'nanocoder run "$(cat "$1")"; /hva/internals/save-session.sh' bash "$PROMPT_CONTAINER_FILE"
+        else
+          set -- bash -lc 'nanocoder; /hva/internals/save-session.sh'
+        fi
+        ;;
+      *)
+        echo "unknown HVA_MODE: $HVA_MODE" >&2
+        exit 1
+        ;;
+    esac
+  fi
 fi
 
 if [[ "$MODE" != "prompt" ]]; then
   # Compute AGENTS.md note for workspace line
   _agents_note=""
-  if (( copied_agent_file == 1 )); then
-    _agents_note=" · AGENTS.md: copied"
-  elif (( had_agent_file == 1 )); then
-    agents_template="$HVA_ROOT/nanocoder/example-agent.md"
-    if [[ -f "$agents_template" && -f "$WORKSPACE/AGENTS.md" ]] && command -v sha256sum >/dev/null 2>&1; then
-      template_agents_sha="$(sha256sum "$agents_template" | awk '{print $1}')"
-      project_agents_sha="$(sha256sum "$WORKSPACE/AGENTS.md" | awk '{print $1}')"
-      if [[ "$template_agents_sha" != "$project_agents_sha" ]]; then
-        _agents_note=" · AGENTS.md: differs (update: cp \"$agents_template\" \"$WORKSPACE/AGENTS.md\")"
-      fi
+  if (( migrated_agent_file == 1 )); then
+    _agents_note=" · AGENTS.md: migrated to managed link"
+  elif (( linked_agent_file == 1 )); then
+    if [[ -f "$WORKSPACE_AGENTS_LOCAL" ]]; then
+      _agents_note=" · AGENTS.md: managed link + AGENTS.local.md"
+    else
+      _agents_note=" · AGENTS.md: managed link"
     fi
+  elif (( custom_agent_file == 1 )); then
+    _agents_note=" · AGENTS.md: custom"
   fi
   echo "workspace: $WORKSPACE ($LLAMA_MODEL_ALIAS · $LLAMA_MODEL)$_agents_note"
   if (( ${#passed_secret_envs[@]} > 0 )); then

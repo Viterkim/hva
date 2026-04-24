@@ -4,7 +4,7 @@
 
 - GitHub nanocoder specs build from source so unreleased commits work
 - `docker/Dockerfile.safeprison` patches compiled JS for container trust at build time
-- patches: `useDirectoryTrust.js` (container trust), `useAppHandlers.js` (session auto-resume), `useAppInitialization.js` (await MCP before ready signal for consistent system prompt)
+- patches: `useDirectoryTrust.js` (container trust), `useAppHandlers.js` (session auto-resume), `useAppInitialization.js` (await MCP before ready signal for consistent system prompt), `conversation-loop.js` (preserve full assistant content for history/cache reuse), `useSessionAutosave.js` (flush pending autosave work on shutdown)
 - each compiled patch is verified with `grep -q`, so docker build fails loudly if it stops matching after a nanocoder update
 
 ## C# LSP

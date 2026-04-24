@@ -142,6 +142,11 @@ else
 fi
 mv "$tmp_prefs" "$prefs"
 
+if [ "${1:-}" = "--loop" ]; then
+  shift
+  exec /hva/internals/nanocoder-loop.sh "$@"
+fi
+
 nanocoder_args=("$@")
 if /usr/local/bin/nanocoder-real --help 2>/dev/null | grep -q -- "--mode"; then
   has_mode=0

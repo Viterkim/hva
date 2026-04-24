@@ -4,8 +4,32 @@
 env_apply_defaults() {
   export HVA_LSP_ENABLED="${HVA_LSP_ENABLED:-rust,typescript,python,json,html,css,yaml,bash,docker,go,clangd}"
   export HVA_LSP_DISABLED="${HVA_LSP_DISABLED:-csharp}"
+  if [[ -z "${HVA_MANAGE_AGENTS+x}" && -n "${HVA_COPY_AGENTS+x}" ]]; then
+    export HVA_MANAGE_AGENTS="$HVA_COPY_AGENTS"
+  fi
+  export HVA_MANAGE_AGENTS="${HVA_MANAGE_AGENTS:-1}"
+  export HVA_COPY_AGENTS="${HVA_COPY_AGENTS:-$HVA_MANAGE_AGENTS}"
+  export HVA_LOAD_MCP_ENV="${HVA_LOAD_MCP_ENV:-1}"
   export HVA_MOUNT_GITCONFIG="${HVA_MOUNT_GITCONFIG:-0}"
   export HVA_MOUNT_NVIM="${HVA_MOUNT_NVIM:-0}"
+  export HVA_MOUNT_SSH="${HVA_MOUNT_SSH:-0}"
+  export HVA_LOG_NANOCODER_OUTPUT="${HVA_LOG_NANOCODER_OUTPUT:-0}"
+  export HVA_LOG_TOOL_OUTPUT="${HVA_LOG_TOOL_OUTPUT:-0}"
+  export HVA_UNSAFE="${HVA_UNSAFE:-0}"
+
+  export LLAMA_AUTOFIT_TOKENS="${LLAMA_AUTOFIT_TOKENS:-1024}"
+  export LLAMA_ENABLE_THINKING="${LLAMA_ENABLE_THINKING:-1}"
+  export LLAMA_PRESERVE_THINKING="${LLAMA_PRESERVE_THINKING:-1}"
+  export LLAMA_TEMPERATURE="${LLAMA_TEMPERATURE:-0.6}"
+  export LLAMA_TOP_P="${LLAMA_TOP_P:-0.95}"
+  export LLAMA_TOP_K="${LLAMA_TOP_K:-20}"
+  export LLAMA_MIN_P="${LLAMA_MIN_P:-0.0}"
+  export LLAMA_PRESENCE_PENALTY="${LLAMA_PRESENCE_PENALTY:-0.0}"
+  export LLAMA_REPEAT_PENALTY="${LLAMA_REPEAT_PENALTY:-1.0}"
+}
+
+env_is_number() {
+  [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]
 }
 
 env_validate_common() {
@@ -63,7 +87,7 @@ env_validate_common() {
     missing=1
   fi
 
-  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE; do
+  for var in HVA_MANAGE_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE; do
     if [[ -z "${!var+x}" ]]; then
       echo "$var is not set" >&2
       missing=1
@@ -75,7 +99,7 @@ env_validate_common() {
     exit 1
   fi
 
-  for var in HVA_COPY_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE; do
+  for var in HVA_MANAGE_AGENTS HVA_LOAD_MCP_ENV HVA_MOUNT_GITCONFIG HVA_MOUNT_NVIM HVA_MOUNT_SSH HVA_LOG_NANOCODER_OUTPUT HVA_LOG_TOOL_OUTPUT HVA_UNSAFE LLAMA_ENABLE_THINKING LLAMA_PRESERVE_THINKING; do
     case "${!var}" in
       0|1) ;;
       *) echo "$var must be 0 or 1: ${!var}" >&2; exit 1 ;;
@@ -122,6 +146,20 @@ env_validate_common() {
       exit 1
       ;;
   esac
+
+  case "${LLAMA_TOP_K:-}" in
+    ''|*[!0-9]*)
+      echo "LLAMA_TOP_K must be a number: ${LLAMA_TOP_K:-<unset>}" >&2
+      exit 1
+      ;;
+  esac
+
+  for var in LLAMA_TEMPERATURE LLAMA_TOP_P LLAMA_MIN_P LLAMA_PRESENCE_PENALTY LLAMA_REPEAT_PENALTY; do
+    if ! env_is_number "${!var}"; then
+      echo "$var must be a non-negative number: ${!var}" >&2
+      exit 1
+    fi
+  done
 
   if [[ ! -d "$LLAMA_MODELS" ]]; then
     echo "LLAMA_MODELS directory does not exist: $LLAMA_MODELS" >&2

@@ -128,6 +128,18 @@ env_validate_model
 
 : "${LLAMA_MODELS:?LLAMA_MODELS must be set by env/env-source.sh}"
 
+llama_enable_thinking=false
+if [[ "${LLAMA_ENABLE_THINKING:-1}" == "1" ]]; then
+  llama_enable_thinking=true
+fi
+
+llama_preserve_thinking=false
+if [[ "${LLAMA_PRESERVE_THINKING:-1}" == "1" ]]; then
+  llama_preserve_thinking=true
+fi
+
+chat_template_kwargs="$(printf '{"preserve_thinking": %s, "enable_thinking": %s}' "$llama_preserve_thinking" "$llama_enable_thinking")"
+
 docker_args=(
   --rm
   --gpus all
@@ -154,7 +166,7 @@ run_llama() {
     -fa on \
     -ctk q8_0 \
     -ctv q8_0 \
-    --chat-template-kwargs '{"preserve_thinking": true, "enable_thinking": true}'  \
+    --chat-template-kwargs "$chat_template_kwargs" \
     --jinja \
     --reasoning auto \
     --reasoning-budget "$LLAMA_REASONING_BUDGET" \
@@ -163,12 +175,12 @@ run_llama() {
     --metrics \
     --host 0.0.0.0 \
     --port 8080 \
-    --temperature 0.61 \
-    --top-p 0.94 \
-    --top-k 19 \
-    --min-p 0.0 \
-    --presence-penalty 0.0 \
-    --repeat-penalty 1.0 \
+    --temperature "$LLAMA_TEMPERATURE" \
+    --top-p "$LLAMA_TOP_P" \
+    --top-k "$LLAMA_TOP_K" \
+    --min-p "$LLAMA_MIN_P" \
+    --presence-penalty "$LLAMA_PRESENCE_PENALTY" \
+    --repeat-penalty "$LLAMA_REPEAT_PENALTY" \
     "$@"
 }
 

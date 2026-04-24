@@ -33,11 +33,22 @@ export LLAMA_REASONING_BUDGET="-1"
 export LLAMA_NCMOE="11"
 export LLAMA_AUTOFIT_TOKENS="1024"  # 0 = use LLAMA_NCMOE instead
 
-export HVA_COPY_AGENTS="${HVA_COPY_AGENTS:-1}"
+# Qwen3.6 defaults for precise coding / agent work.
+# If you want looser, more creative output, try temperature=0.7 first.
+export LLAMA_ENABLE_THINKING="1"
+export LLAMA_PRESERVE_THINKING="1"
+export LLAMA_TEMPERATURE="0.6"
+export LLAMA_TOP_P="0.95"
+export LLAMA_TOP_K="20"
+export LLAMA_MIN_P="0.0"
+export LLAMA_PRESENCE_PENALTY="0.0"
+export LLAMA_REPEAT_PENALTY="1.0"
+
+export HVA_MANAGE_AGENTS="${HVA_MANAGE_AGENTS:-1}"
+export HVA_COPY_AGENTS="${HVA_COPY_AGENTS:-1}"  # legacy alias for HVA_MANAGE_AGENTS
 export HVA_LOAD_MCP_ENV="${HVA_LOAD_MCP_ENV:-1}"
 export HVA_MOUNT_GITCONFIG="${HVA_MOUNT_GITCONFIG:-0}"
 export HVA_MOUNT_NVIM="${HVA_MOUNT_NVIM:-0}"
 export HVA_MOUNT_SSH="${HVA_MOUNT_SSH:-0}"
 export HVA_UNSAFE="${HVA_UNSAFE:-0}"      # see caveats.md
 export HVA_CSHARP="${HVA_CSHARP:-false}"  # rebuild required: hva --build-docker-prison
-

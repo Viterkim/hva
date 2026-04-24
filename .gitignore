@@ -4,6 +4,7 @@ benchmarking/results/
 env/env-source.sh
 .nano-coder-history
 .nanocoder/
+.tmp-*
 nanocoder/mcp.env
 nanocoder/logs/
 nanocoder/sessions/
