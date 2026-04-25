@@ -159,7 +159,7 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir "$FNM_D
     && npm config set fetch-retry-maxtimeout 120000 \
     && npm config set registry https://registry.npmjs.org/
 
-ARG HVA_V_NANOCODER_SPEC
+ARG HVA_V_PI_CODING_AGENT_NPM_SPEC
 ARG HVA_V_TYPESCRIPT_VERSION
 ARG HVA_V_TYPESCRIPT_LS_VERSION
 ARG HVA_V_PRETTIER_VERSION
@@ -186,53 +186,14 @@ RUN --mount=type=cache,id=hva-npm-v2,mode=0777,uid=${USER_UID},gid=${USER_GID},s
            "vscode-langservers-extracted@${HVA_V_VSCODE_LANGSERVERS_VERSION}" \
            "yaml-language-server@${HVA_V_YAML_LS_VERSION}" \
            "bash-language-server@${HVA_V_BASH_LS_VERSION}" \
-           "dockerfile-language-server-nodejs@${HVA_V_DOCKERFILE_LS_VERSION}" && break; \
+           "dockerfile-language-server-nodejs@${HVA_V_DOCKERFILE_LS_VERSION}" \
+           "${HVA_V_PI_CODING_AGENT_NPM_SPEC}" && break; \
          echo "npm tools install failed, retry $i/3"; \
          sleep 10; \
        done \
-    && if [[ "${HVA_V_NANOCODER_SPEC}" == github:Nano-Collective/nanocoder#* ]]; then \
-         nanocoder_ref="${HVA_V_NANOCODER_SPEC#github:Nano-Collective/nanocoder#}"; \
-         git clone --filter=blob:none --no-checkout https://github.com/Nano-Collective/nanocoder.git /tmp/nanocoder-src; \
-         git -C /tmp/nanocoder-src fetch --depth 1 origin "$nanocoder_ref"; \
-         git -C /tmp/nanocoder-src checkout FETCH_HEAD; \
-         cd /tmp/nanocoder-src; \
-         if [[ ! -f source/app/prompts/sections/task-approach-yolo.md ]]; then \
-           cp source/app/prompts/sections/task-approach-auto-accept.md source/app/prompts/sections/task-approach-yolo.md; \
-         fi; \
-         HUSKY=0 pnpm install --frozen-lockfile; \
-         pnpm run build; \
-         npm pack --ignore-scripts; \
-         npm install -g ./*.tgz; \
-         cd /workspace; \
-         rm -rf /tmp/nanocoder-src; \
-       else \
-         npm install -g "${HVA_V_NANOCODER_SPEC}"; \
-       fi \
     && node --version \
     && npm --version \
-    && npm ls -g @nanocollective/nanocoder --depth=0
-
-RUN set -eux; \
-    export PATH="$FNM_DIR:$PATH"; \
-    eval "$(fnm env --shell bash)"; \
-    fnm use "${HVA_V_NODE_VERSION}" >/dev/null; \
-    pkg="$(npm root -g)/@nanocollective/nanocoder"; \
-    sed -i "s/const trusted = trustedDirectories.some(trustedDir => path.resolve(trustedDir) === normalizedDirectory);/const trustContainer = process.env.NANOCODER_TRUST_CONTAINER === '1';\\n        const trusted = trustContainer || trustedDirectories.some(trustedDir => path.resolve(trustedDir) === normalizedDirectory);/" "$pkg/dist/hooks/useDirectoryTrust.js"; \
-    grep -q "trustContainer" "$pkg/dist/hooks/useDirectoryTrust.js"; \
-    sed -i "s|    // Message submit handler|    React.useEffect(()=>{const r=process.env.NANOCODER_AUTO_RESUME;if(r)(async()=>{try{await sessionManager.initialize();const ss=await sessionManager.listSessions({workingDirectory:process.cwd()});const so=[...ss].sort((a,b)=>new Date(b.lastAccessedAt)-new Date(a.lastAccessedAt));const id=r==='last'?so[0]?.id:r;if(id){const s=await sessionManager.loadSession(id);if(s)applySession(s);}}catch(_){}})();},[]); // hva-auto-resume\\n    // Message submit handler|" "$pkg/dist/hooks/useAppHandlers.js"; \
-    grep -q "hva-auto-resume" "$pkg/dist/hooks/useAppHandlers.js"; \
-    sed -zi 's/            setMcpInitialized(true);\n            setStartChat(true);/            setStartChat(true);/' "$pkg/dist/hooks/useAppInitialization.js"; \
-    sed -i 's/            void initializeMCPServers(newToolManager);/            await initializeMCPServers(newToolManager); \/\/ hva: wait for consistent system prompt/' "$pkg/dist/hooks/useAppInitialization.js"; \
-    grep -q "hva: wait for consistent" "$pkg/dist/hooks/useAppInitialization.js"; \
-    if [[ "${HVA_CSHARP}" == "true" ]]; then \
-        server_discovery="$pkg/dist/lsp/server-discovery.js"; \
-        grep -q "    // JSON" "$server_discovery"; \
-        sed -i "/    \\/\\/ JSON/i\\    // C#\\n    {\\n        name: 'csharp-ls',\\n        command: 'csharp-ls',\\n        args: [],\\n        languages: ['cs'],\\n        checkCommand: 'csharp-ls --version',\\n        verificationMethod: 'version',\\n        installHint: 'dotnet tool install --global csharp-ls',\\n    }," "$server_discovery"; \
-        grep -q "        hxx: 'cpp'," "$server_discovery"; \
-        sed -i "s/        hxx: 'cpp',/        hxx: 'cpp',\\n        cs: 'csharp',/" "$server_discovery"; \
-        grep -q "name: 'csharp-ls'" "$server_discovery"; \
-        grep -q "cs: 'csharp'" "$server_discovery"; \
-    fi
+    && npm ls -g @mariozechner/pi-coding-agent --depth=0
 
 ARG HVA_V_RUST_VERSION
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "${HVA_V_RUST_VERSION}" --profile default \
@@ -240,12 +201,6 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "${HVA_V_RU
     && rustup component add rustfmt clippy rust-src rust-analyzer \
     && rustc --version \
     && cargo --version
-
-ARG HVA_V_RUST_DOCS_MCP_VERSION
-RUN --mount=type=cache,id=hva-cargo-registry,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/.cargo/registry \
-    --mount=type=cache,id=hva-cargo-git,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/.cargo/git \
-    cargo install rust-docs-mcp --version "${HVA_V_RUST_DOCS_MCP_VERSION}" \
-    && rust-docs-mcp --help >/dev/null
 
 ARG HVA_V_CARGO_BINSTALL_VERSION
 ARG HVA_V_JUST_VERSION
@@ -318,7 +273,6 @@ if [ -x "$FNM_DIR/fnm" ]; then
   export PATH="$FNM_DIR:$PATH"
   eval "$(fnm env --shell bash --use-on-cd)"
 fi
-# /usr/local/bin holds hva wrappers (nanocoder, etc.) that must win over fnm's bin
 export PATH="/usr/local/bin:$PATH"
 
 ranger-cd() {
@@ -345,18 +299,23 @@ USER root
 RUN export HOME="/home/${USERNAME}" FNM_DIR="/home/${USERNAME}/.local/share/fnm" PATH="$FNM_DIR:$PATH:/usr/local/bin:/usr/bin:/bin" \
     && eval "$("$FNM_DIR/fnm" env --shell bash)" \
     && "$FNM_DIR/fnm" use "${HVA_V_NODE_VERSION}" >/dev/null \
-    && for bin in fnm node npm npx corepack nanocoder typescript-language-server prettier eslint tsx pyright-langserver vscode-json-language-server vscode-html-language-server vscode-css-language-server yaml-language-server bash-language-server docker-langserver; do ln -sf "$(command -v "$bin")" "/usr/local/bin/$bin"; done \
+    && for bin in fnm node npm npx corepack pi typescript-language-server prettier eslint tsx pyright-langserver vscode-json-language-server vscode-html-language-server vscode-css-language-server yaml-language-server bash-language-server docker-langserver; do ln -sf "$(command -v "$bin")" "/usr/local/bin/$bin"; done \
     && if [[ "${HVA_CSHARP}" == "true" ]]; then \
          ln -sf "$(command -v dotnet)" /usr/local/bin/dotnet; \
          ln -sf "$(command -v csharp-ls)" /usr/local/bin/csharp-ls; \
        fi \
     && ln -sf /usr/sbin/ifconfig /usr/local/bin/ifconfig \
-    && ln -sf "$(readlink -f /usr/local/bin/nanocoder)" /usr/local/bin/nanocoder-real \
-    && rm -f /usr/local/bin/nanocoder \
     && chown -R "${USER_UID}:${USER_GID}" "/home/${USERNAME}"
 
-COPY nanocoder-wrapper /usr/local/bin/nanocoder
-RUN chmod 0755 /usr/local/bin/nanocoder
+# Pre-install Pi extension runtime deps so containers never need runtime npm ci
+COPY pi/extensions/package.json pi/extensions/package-lock.json /hva-ext-deps/
+RUN export HOME="/home/${USERNAME}" FNM_DIR="/home/${USERNAME}/.local/share/fnm" PATH="$FNM_DIR:$PATH:/usr/local/bin:/usr/bin:/bin" \
+    && eval "$("$FNM_DIR/fnm" env --shell bash)" \
+    && "$FNM_DIR/fnm" use "${HVA_V_NODE_VERSION}" >/dev/null \
+    && npm ci --prefix /hva-ext-deps --omit=dev \
+    && sha256sum /hva-ext-deps/package.json /hva-ext-deps/package-lock.json \
+         | sha256sum | awk '{print $1}' > /hva-ext-deps/.ext-deps-version \
+    && chown -R "${USER_UID}:${USER_GID}" /hva-ext-deps
 
 USER ${USERNAME}
 WORKDIR /workspace

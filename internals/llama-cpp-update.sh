@@ -10,35 +10,52 @@ VERSIONS_FILE="${VERSIONS_FILE:-$SCRIPT_DIR/../docker/versions.env}"
 # shellcheck source=../docker/versions.env
 source "$VERSIONS_FILE"
 
-LLAMA_IMAGE="$HVA_V_LLAMA_CPP_IMAGE"
-LLAMA_IMAGE_TAG="${LLAMA_IMAGE%@*}"
-LATEST_DIGEST="$(
-  "${DOCKER[@]}" buildx imagetools inspect "$LLAMA_IMAGE_TAG" 2>/dev/null \
-    | awk '/^Digest:/ { print $2; exit }'
-)"
+declare -A LLAMA_BACKENDS=(
+  [CUDA]="$HVA_V_LLAMA_CPP_IMAGE_CUDA"
+  [ROCm]="$HVA_V_LLAMA_CPP_IMAGE_ROCM"
+  [Vulkan]="$HVA_V_LLAMA_CPP_IMAGE_VULKAN"
+  [CPU]="$HVA_V_LLAMA_CPP_IMAGE_CPU"
+)
+declare -A LLAMA_VAR_NAMES=(
+  [CUDA]="HVA_V_LLAMA_CPP_IMAGE_CUDA"
+  [ROCm]="HVA_V_LLAMA_CPP_IMAGE_ROCM"
+  [Vulkan]="HVA_V_LLAMA_CPP_IMAGE_VULKAN"
+  [CPU]="HVA_V_LLAMA_CPP_IMAGE_CPU"
+)
 
-if [[ -z "$LATEST_DIGEST" ]]; then
-  echo "could not resolve latest digest for: $LLAMA_IMAGE_TAG" >&2
-  exit 1
+any_updated=0
+
+for backend in CUDA ROCm Vulkan CPU; do
+  current_ref="${LLAMA_BACKENDS[$backend]}"
+  tag_ref="${current_ref%@*}"
+  var_name="${LLAMA_VAR_NAMES[$backend]}"
+
+  latest_digest="$(
+    "${DOCKER[@]}" buildx imagetools inspect "$tag_ref" 2>/dev/null \
+      | awk '/^Digest:/ { print $2; exit }'
+  )"
+
+  if [[ -z "$latest_digest" ]]; then
+    echo "could not resolve latest digest for $backend: $tag_ref" >&2
+    continue
+  fi
+
+  latest_ref="${tag_ref}@${latest_digest}"
+
+  if [[ "$latest_ref" != "$current_ref" ]]; then
+    sed -i "s|^${var_name}=.*$|${var_name}=${latest_ref}|" "$VERSIONS_FILE"
+    echo "updated $backend: $latest_ref"
+    any_updated=1
+  else
+    echo "$backend already up to date: $latest_ref"
+  fi
+
+  echo "pulling $backend image: $latest_ref"
+  "${DOCKER[@]}" pull "$latest_ref"
+done
+
+if (( any_updated == 1 )); then
+  echo
+  echo "restart llama to use new image:"
+  echo "  HVA_RESTART_LLAMA=1 hva"
 fi
-
-LATEST_IMAGE="${LLAMA_IMAGE_TAG}@${LATEST_DIGEST}"
-
-if [[ "$LATEST_IMAGE" != "$HVA_V_LLAMA_CPP_IMAGE" ]]; then
-  sed -i "s|^HVA_V_LLAMA_CPP_IMAGE=.*$|HVA_V_LLAMA_CPP_IMAGE=$LATEST_IMAGE|" "$VERSIONS_FILE"
-  echo "updated docker/versions.env:"
-  echo "  HVA_V_LLAMA_CPP_IMAGE=$LATEST_IMAGE"
-else
-  echo "llama.cpp image pin already up to date:"
-  echo "  HVA_V_LLAMA_CPP_IMAGE=$LATEST_IMAGE"
-fi
-
-echo "pulling llama server image: $LATEST_IMAGE"
-"${DOCKER[@]}" pull "$LATEST_IMAGE"
-
-echo
-echo "updated image:"
-"${DOCKER[@]}" image inspect "$LATEST_IMAGE" --format '{{.RepoTags}} {{.Id}} {{.Created}}'
-echo
-echo "restart llama to use new image:"
-echo "  HVA_RESTART_LLAMA=1 hva"

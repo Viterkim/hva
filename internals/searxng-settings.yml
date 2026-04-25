@@ -1,4 +1,16 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    remove:
+      - wikidata
+      - ahmia
+      - torch
+      - brave
+      - brave.images
+      - brave.videos
+      - brave.news
+      - duckduckgo
+      - karmasearch
+      - "karmasearch videos"
 
 server:
   secret_key: "hva-searxng-local-only"

@@ -1,0 +1,10 @@
+{
+  "name": "hva-pi-extensions",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "0.70.2",
+    "pi-lens": "3.8.31",
+    "typebox": "1.0.62"
+  }
+}

@@ -6,11 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
 source "$SCRIPT_DIR/docker.sh"
 
-ENV_SOURCE="${SCRIPT_DIR}/../env/env-source.sh"
-if [[ -f "$ENV_SOURCE" ]]; then
-    # shellcheck source=../env/env-source.sh
-    source "$ENV_SOURCE"
-fi
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/load-config.sh"
 
 VERSIONS_FILE="${VERSIONS_FILE:-$SCRIPT_DIR/../docker/versions.env}"
 
@@ -58,19 +55,20 @@ case "${HVA_CSHARP}" in
     true|false) ;;
     *) echo "error: HVA_CSHARP must be true or false, got: ${HVA_CSHARP}" >&2; exit 1 ;;
 esac
-DOCKER_CONTEXT="${DOCKER_CONTEXT:-$SCRIPT_DIR/../docker}"
+DOCKER_CONTEXT="${DOCKER_CONTEXT:-$(cd "$SCRIPT_DIR/.." && pwd -P)}"
 DEV_IMAGE_SOURCE_HASH="$(
   {
-    cd "$DOCKER_CONTEXT"
-    find . -type f -print0 | sort -z | xargs -0 sha256sum
-    sha256sum "$VERSIONS_FILE" | awk '{print $1}'
+    # Docker build files
+    find "$DOCKER_CONTEXT/docker" -type f -print0 | sort -z | xargs -0 sha256sum
+    # Extension deps baked into image
+    sha256sum "$DOCKER_CONTEXT/pi/extensions/package.json" "$DOCKER_CONTEXT/pi/extensions/package-lock.json"
+    # Build flags
     printf 'HVA_CSHARP=%s\n' "$HVA_CSHARP"
   } | sha256sum | awk '{print $1}'
 )"
 CURRENT_IMAGE_HASH="$("${DOCKER[@]}" image inspect "$IMAGE_NAME" --format '{{ index .Config.Labels "dev.hva.source-hash" }}' 2>/dev/null || true)"
 
 if [[ "${HVA_REBUILD:-0}" != "1" && "$FORCE_REBUILD" != "1" && -n "$CURRENT_IMAGE_HASH" && "$CURRENT_IMAGE_HASH" == "$DEV_IMAGE_SOURCE_HASH" ]]; then
-    echo "dev image up to date: $IMAGE_NAME"
     exit 0
 fi
 
@@ -83,12 +81,13 @@ else
 fi
 
 DOCKER_BUILDKIT=1 "${DOCKER[@]}" build \
+  --network host \
   --build-arg "USERNAME=${USERNAME}" \
   --build-arg "USER_UID=${USER_UID}" \
   --build-arg "USER_GID=${USER_GID}" \
   --build-arg "HVA_CSHARP=${HVA_CSHARP}" \
   --build-arg "DEV_IMAGE_SOURCE_HASH=${DEV_IMAGE_SOURCE_HASH}" \
   "${VERSION_ARGS[@]}" \
-  -f "$DOCKER_CONTEXT/Dockerfile.safeprison" \
+  -f "$DOCKER_CONTEXT/docker/Dockerfile.safeprison" \
   -t "$IMAGE_NAME" \
   "$DOCKER_CONTEXT"

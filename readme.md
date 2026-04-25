@@ -1,47 +1,62 @@
-# Hva'? (hva) - Local Vibecode Setup
+# Hva'? (hva) - Local Pi + llama.cpp Setup
 
 - Local llama.cpp server
-- Nanocoder in a yolo-mode dev container (with lsp + mcp setup)
+- Pi coding agent in dev container
 
 ## Quick start
 
 1. Add `scripts/` to your PATH
 2. Download a `.gguf` model and put it in `models/`
-3. Run `hva` from any project
+3. Run `hva`
 
-That's it. `env/env-source.sh` is created automatically on first run. If there's only one `.gguf` in `models/`, it's used automatically — no config needed.
+`config/hva-conf.json` is created automatically on first run.
 
-```bash
-hva
+### Recommended model
+
+- [Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF)
+- [Q4 download](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q4_K_M.gguf)
+- [Q5 download](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q5_K_M.gguf)
+
+## Commands
+
+```
+hva                          open Pi session (resume or new)
+hva --new                    fresh session
+hva --bash                   shell in dev container
+hva --msg "text"             one-shot message
+hva --prompt-file FILE       one-shot from file
+hva --diff-review-main       code review vs main (also: --diff-review-branch BRANCH, --diff-review-unstaged, --diff-review-staged, --diff-review-all, --diff-review SHA)
+hva --daemon                 start llama server as background daemon
+hva --stop                   stop llama, searxng, dev container
+hva --start-searxng          start SearXNG
+hva --stop-searxng           stop SearXNG
+hva --healthcheck            llama health verdict
+hva --llama-cpp-logs-full    full llama container logs
+hva --build-docker-prison    build dev image (--force to rebuild)
+hva --check-versions         check pinned vs latest upstream versions
+hva --llama-cpp-update       update pinned llama.cpp image digest
+hva --loop                   run tasks.md through repeated Pi passes
+hva --loop-init              create tasks.md template
+hva --loop-stop              stop loop after current iteration
+hva --loop-status            show loop state
+hva --reset-pi-cache         clear Pi home/config cache
+hva --cleanup-docker         show Docker storage
+hva --cleanup-docker --apply prune HVA containers/images (--volumes, --global-build-cache)
 ```
 
-## Useful commands
+## Project isolation
 
-- `hva --bash`: shell in dev container
-- `hva --msg "text"`: one-shot Nanocoder message
-- `hva --prompt "text"`: one-shot Nanocoder message (alias for --msg)
-- `hva --prompt-file FILE`: one-shot Nanocoder run from file
-- `hva --diff-review-main`: code review diff vs main/master
-- `hva --diff-review-branch BRANCH`: code review diff from merge-base(BRANCH)
-- `hva --diff-review-unstaged`: code review unstaged changes
-- `hva --diff-review-staged`: code review staged changes
-- `hva --diff-review-all`: code review all tracked + untracked changes
-- `hva --diff-review SHA`: code review from SHA to HEAD
-- `hva --stop`: stop llama server and searxng
-- `hva --start-searxng`: start SearXNG web search container
-- `hva --stop-searxng`: stop SearXNG container only
-- `hva --update`: pull latest hva, clear stale nanocoder cache
-- `hva --reset-nanocoder-cache`: clear cached nanocoder config
-- `hva --daemon`: start llama server in background
-- `hva --healthcheck`: compact llama health verdict
-- `hva --llama-cpp-logs-full`: full llama container logs
-- `hva --build-docker-prison`: build dev image if missing/outdated (`--force` to rebuild anyway)
-- `hva --check-versions`: check pinned vs latest upstream versions
-- `hva --llama-cpp-update`: update pinned llama.cpp image digest, then pull it
+`hva` does not read or write project agent files. The repo's `AGENTS.md`, `.pi/extensions`, `.pi/skills` are ignored. HVA loads its own extensions and skills explicitly.
 
-## More Info
+## Config
 
-- More [Docker Setup Docs](docs/docker.md)
-- Extra Optional [Native Nanocoder setup](docs/local.md)
-- Censored: [Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf) · [model page](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF)
-- Uncensored: [Qwen3.6-35B-A3B-uncensored-heretic.i1-Q5_K_M.gguf](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic.i1-Q5_K_M.gguf) · [model page](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF)
+`config/hva-conf.json` — all settings (model, context, sampling, mounts, MCP). See `config/hva-conf.json.sample`.  
+`config/hva-secrets.json` — optional secrets (gitignored). See `config/hva-secrets.json.sample`.  
+Full config reference and one-shot env overrides: [docs/docker.md](docs/docker.md).
+
+## More info
+
+- [Caveats](caveats.md)
+- [Pi docs](https://pi.dev/)
+- [Docker setup](docs/docker.md)
+- [Local host setup](docs/local.md)

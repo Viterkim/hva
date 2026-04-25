@@ -1,27 +1,37 @@
 # Caveats
 
-## Nanocoder patches
+## Docker socket (host escape)
 
-- GitHub nanocoder specs build from source so unreleased commits work
-- `docker/Dockerfile.safeprison` patches compiled JS for container trust at build time
-- patches: `useDirectoryTrust.js` (container trust), `useAppHandlers.js` (session auto-resume), `useAppInitialization.js` (await MCP before ready signal for consistent system prompt)
-- each compiled patch is verified with `grep -q`, so docker build fails loudly if it stops matching after a nanocoder update
+- `HVA_MOUNT_DOCKER_SOCKET=0` — default: container cannot touch host Docker
+- `HVA_MOUNT_DOCKER_SOCKET=1` — mounts `/var/run/docker.sock`; container can start/stop/delete host containers
+- The container is NOT a security boundary when the Docker socket is mounted
 
-## C# LSP
+## ptrace and seccomp (debug mode)
 
-- csharp-ls is registered with nanocoder's LSP server discovery via the same sed mechanism
-- opt-in: `HVA_CSHARP=true hva --build-docker-prison` (off by default)
-- same caveat as above: more sed surface area for a narrow use case
-- even when installed, `HVA_LSP_ENABLED` / `HVA_LSP_DISABLED` can still mask it at runtime
+- Default container runs without `--cap-add SYS_PTRACE` and without `seccomp=unconfined`
+- Set `HVA_UNSAFE=1` in config only when you need debugger-heavy sessions
+- Those flags weaken kernel isolation
 
-## Docker flags
+## SSH, gitconfig, Neovim mounts
 
-- opt-in: `HVA_UNSAFE=1`
-- `--cap-add SYS_PTRACE` + `--security-opt seccomp=unconfined`: needed for debuggers (gdb, strace, valgrind) inside the container
-- `-v /var/run/docker.sock:/var/run/docker.sock`: lets the container run docker commands on the host
-- NOTE: the container is not a strong security boundary when unsafe mode is on
+- `HVA_MOUNT_SSH=1` — mounts `~/.ssh` read-only; agent can use host SSH keys and identities
+- `HVA_MOUNT_GITCONFIG=1` — mounts `~/.gitconfig` read-only; commits will use your host identity
+- `HVA_MOUNT_NVIM=1` — mounts `~/.config/nvim` and `~/.local/share/nvim` read-only
 
-## Host config mounts
+## pi-lens state
 
-- opt-in with `HVA_MOUNT_GITCONFIG=1` and `HVA_MOUNT_NVIM=1`
-- `~/.ssh` is opt-in through `HVA_MOUNT_SSH=1`
+- pi-lens writes `.pi-lens/` cache into the workspace; HVA mounts that path as tmpfs
+- Cache is ephemeral — gone when the dev container stops; pi-lens rebuilds on next start
+
+## SearXNG disabled engines
+
+- `wikidata`, `ahmia`, `torch` removed via `use_default_settings.engines.remove` in `internals/searxng-settings.yml`
+- Reason: wikidata crashes on startup (upstream API broke), ahmia and torch are TOR indexers that fail to load
+- Settings and limiter stub are copied into the container before start; no host temp dir is reused
+- All standard web search engines (DuckDuckGo, Bing, Google, etc.) remain active
+
+## Local mode needs host Node
+
+- `docs/local.md` describes running Pi directly on the host (not in container)
+- Local mode requires host Node, npm, and extension deps installed on the host machine
+- Docker mode does not need host Node

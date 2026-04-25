@@ -8,12 +8,13 @@ HVA_ROOT="${HVA_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd -P)}"
 usage() {
   cat <<EOF
 Usage:
-  hva                          start/reuse llama, enter workspace, open Nanocoder
+  hva                          start/reuse llama, enter workspace, open Pi
+  hva --local                  start/reuse llama, then open host Pi
   hva --bash                   enter workspace shell; does not wait for llama
-  hva --new                    start a fresh Nanocoder session (clears resume state)
-  hva --msg TEXT               one-shot Nanocoder message
-  hva --prompt TEXT            one-shot Nanocoder prompt (alias for --msg)
-  hva --prompt-file FILE       one-shot Nanocoder prompt from file
+  hva --new                    start a fresh Pi session (clears resume state)
+  hva --msg TEXT               one-shot Pi message
+  hva --prompt TEXT            one-shot Pi prompt (alias for --msg)
+  hva --prompt-file FILE       one-shot Pi prompt from file
   hva --diff-review REV        review git diff from REV..HEAD
 
   hva --diff-review-branch BRANCH
@@ -23,17 +24,26 @@ Usage:
   hva --diff-review-staged     review staged git diff
   hva --diff-review-unstaged   review unstaged git diff
   hva --diff-review-all        review tracked + untracked git diff without touching real index
-  hva --stop                   stop llama server and searxng
-  hva --start-searxng          start the SearXNG web search container
-  hva --stop-searxng           stop the SearXNG container only
-  hva --update                 pull latest hva, clear stale nanocoder cache
-  hva --reset-nanocoder-cache  clear cached nanocoder config (rebuilt on next run)
+  hva --stop                   stop llama, searxng, and dev container
+  hva --start-searxng          start SearXNG helper container
+  hva --stop-searxng           stop SearXNG helper container
+  hva --update                 pull latest hva, ensure config exists, refresh Pi config
+  hva --reset-pi-cache         clear cached Pi config/home (rebuilt on next run)
+  hva --cleanup-docker [--apply] [--volumes] [--global-build-cache]
+                               show Docker storage; prune HVA-owned leftovers when applied
+  hva --runtime-state [WORKSPACE]
+                               print HVA state paths for this workspace
   hva --daemon                 start llama server as background daemon
-  hva --healthcheck            compact llama health verdict
+  hva --healthcheck            compact llama health verdict; strict on cache invalidation
   hva --llama-cpp-update       update pinned llama.cpp image digest, then pull it
   hva --llama-cpp-logs-full    print full llama server container logs
   hva --build-docker-prison    build dev image if missing/outdated (--force to rebuild anyway)
   hva --check-versions         check pinned vs latest upstream versions
+  hva --loop [WORKSPACE]       run Pi loop mode using WORKSPACE/tasks.md
+  hva --loop-init [WORKSPACE]  create a tasks.md template in workspace root
+  hva --loop-stop [WORKSPACE]  ask a running loop to stop after this iteration
+  hva --loop-status [WORKSPACE]
+                               print current loop status from workspace state
 EOF
 }
 
@@ -42,23 +52,38 @@ PROMPT_TEXT=""
 PROMPT_FILE=""
 DIFF_REVIEW_MODE=""
 DIFF_REVIEW_TARGET=""
+USE_LOCAL_PI=0
 
-# --new is a pre-flag that can precede any other option
-if [[ "${1:-}" == "--new" ]]; then
-  HVA_NEW_SESSION=1
-  shift
-fi
+while [[ $# -gt 0 ]]; do
+  case "${1:-}" in
+    --new)
+      HVA_NEW_SESSION=1
+      shift
+      ;;
+    --local|--host-pi)
+      USE_LOCAL_PI=1
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
 case "${1:-}" in
-
-  --stop)    MODE="stop";         shift ;;
+  --stop|-stop) MODE="stop"; shift ;;
+  --loop) MODE="loop"; shift ;;
+  --loop-init) MODE="loop-init"; shift ;;
+  --loop-stop) MODE="loop-stop"; shift ;;
+  --loop-status) MODE="loop-status"; shift ;;
   --start-searxng) MODE="start-searxng"; shift ;;
-  --stop-searxng)  MODE="stop-searxng";  shift ;;
-  --update)                exec "$HVA_ROOT/internals/update.sh" ;;
-  --new) HVA_NEW_SESSION=1; shift ;;
-  --reset-nanocoder-cache) MODE="reset-nanocoder-cache"; shift ;;
-  --daemon)  MODE="daemon"; shift ;;
-  --bash)    MODE="bash";   shift ;;
+  --stop-searxng) MODE="stop-searxng"; shift ;;
+  --update) exec "$HVA_ROOT/internals/update.sh" ;;
+  --reset-pi-cache) MODE="reset-pi-cache"; shift ;;
+  --cleanup-docker) exec "$HVA_ROOT/internals/cleanup-docker.sh" "${@:2}" ;;
+  --runtime-state) MODE="runtime-state"; shift ;;
+  --daemon) MODE="daemon"; shift ;;
+  --bash) MODE="bash"; shift ;;
   --msg|--prompt)
     [[ $# -ge 2 ]] || { echo "$1 requires text" >&2; exit 1; }
     MODE="prompt"
@@ -105,22 +130,42 @@ case "${1:-}" in
     DIFF_REVIEW_MODE="all"
     shift
     ;;
-  --healthcheck)         exec "$HVA_ROOT/internals/healthcheck.sh" "${@:2}" ;;
-  --llama-cpp-update)    exec "$HVA_ROOT/internals/llama-cpp-update.sh" "${@:2}" ;;
-  --build-docker-prison)  exec "$HVA_ROOT/internals/build-docker-prison.sh" "${@:2}" ;;
-  --check-versions)       exec "$HVA_ROOT/internals/check-versions.sh" "${@:2}" ;;
-  --llama-cpp-logs-full)  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" logs ;;
+  --healthcheck) exec "$HVA_ROOT/internals/healthcheck.sh" "${@:2}" ;;
+  --llama-cpp-update) exec "$HVA_ROOT/internals/llama-cpp-update.sh" "${@:2}" ;;
+  --build-docker-prison) exec "$HVA_ROOT/internals/build-docker-prison.sh" "${@:2}" ;;
+  --check-versions) exec "$HVA_ROOT/internals/check-versions.sh" "${@:2}" ;;
+  --llama-cpp-logs-full) exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" logs ;;
   -h|--help|help) usage; exit 0 ;;
   --*)
     echo "unknown option: $1" >&2
     usage
     exit 1
     ;;
+  -*)
+    echo "unknown option: $1" >&2
+    usage
+    exit 1
+    ;;
 esac
+
+if (( USE_LOCAL_PI == 1 )); then
+  case "$MODE" in
+    start|prompt|diff-review) ;;
+    *)
+      echo "--local only supports interactive Pi, --msg/--prompt-file, and diff review." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../internals/docker.sh"
 
 if [[ "$MODE" == "stop" ]]; then
   "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
-  exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+  "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+  "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
+  exit 0
 fi
 
 if [[ "$MODE" == "start-searxng" ]]; then
@@ -131,32 +176,22 @@ if [[ "$MODE" == "stop-searxng" ]]; then
   exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
 fi
 
-if [[ ! -f "$HVA_ROOT/env/env-source.sh" ]]; then
-  echo "env/env-source.sh not found — creating from sample..."
-  "$HVA_ROOT/internals/sync-env-source.sh"
-fi
-
-source "$SCRIPT_DIR/../env/env-source.sh"
-source "$SCRIPT_DIR/../env/env-validate.sh"
-mkdir -p "$LLAMA_MODELS"
-env_validate_required
-
-if [[ "$MODE" == "daemon" ]]; then
-  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
-fi
-
-if [[ "$MODE" == "reset-nanocoder-cache" ]]; then
-  rm -rf "$HVA_ROOT/.hva-state/nanocoder-configs"
-  echo "nanocoder config cache cleared — fresh config will be written on next: hva"
+if [[ "$MODE" == "reset-pi-cache" ]]; then
+  rm -rf "$HVA_ROOT/.hva-state/pi-home"
+  echo "pi cache cleared — fresh config will be written on next: hva"
   exit 0
 fi
 
 DEV_IMAGE="hva-safeprison"
 DEV_USER="dev"
-HVA_MODE="nanocoder"
+HVA_MODE="pi"
 PROMPT_HOST_FILE=""
-PROMPT_CONTAINER_FILE="/tmp/hva-prompt.txt"
+PROMPT_CONTAINER_FILE="/hva-state/hva-prompt-$$.txt"
 PROMPT_FILE_TEMP=0
+
+if (( USE_LOCAL_PI == 1 )); then
+  HVA_MODE="local-pi"
+fi
 
 if [[ "$MODE" == "bash" ]]; then
   HVA_MODE="bash"
@@ -169,15 +204,14 @@ if [[ $# -gt 0 && -d "$1" ]]; then
   shift
 fi
 WORKSPACE="$(realpath "$WORKSPACE")"
+HVA_STATE_ROOT="$HVA_ROOT/.hva-state"
 
-# Session auto-resume state
-_HVA_SESSION_FILE="$WORKSPACE/.hva-state/nanocoder_session"
-_HVA_AUTO_RESUME_ID=""
-if [[ "${HVA_NEW_SESSION:-0}" == "1" ]]; then
-  rm -f "$_HVA_SESSION_FILE"
-elif [[ "$HVA_MODE" == "nanocoder" && -f "$_HVA_SESSION_FILE" ]]; then
-  _HVA_AUTO_RESUME_ID="$(tr -d '[:space:]' < "$_HVA_SESSION_FILE")"
+workspace_base="$(basename "$WORKSPACE")"
+safe_workspace_name="$(printf '%s' "$workspace_base" | tr -c 'A-Za-z0-9_.-' '-')"
+if [[ -z "$safe_workspace_name" ]]; then
+  safe_workspace_name="workspace"
 fi
+workspace_hash="$(printf '%s' "$WORKSPACE" | sha256sum | cut -c1-12)"
 
 if [[ ! -d "$WORKSPACE" ]]; then
   echo "workspace does not exist: $WORKSPACE" >&2
@@ -194,17 +228,197 @@ case "$WORKSPACE" in
     ;;
 esac
 
+if [[ "$MODE" == "loop" || "$MODE" == "loop-init" || "$MODE" == "loop-stop" || "$MODE" == "loop-status" || "$MODE" == "runtime-state" ]]; then
+  if [[ $# -gt 0 ]]; then
+    echo "unexpected argument for $MODE: $1" >&2
+    usage >&2
+    exit 1
+  fi
+fi
+
+LOOP_TASK_FILE="$WORKSPACE/tasks.md"
+LOOP_STATE_DIR="$HVA_STATE_ROOT/workspaces/$safe_workspace_name-$workspace_hash/loop"
+WORKSPACE_STATE_ROOT="$HVA_STATE_ROOT/workspaces/$safe_workspace_name-$workspace_hash"
+WORKSPACE_STATE_PLACEHOLDER_MARKER="$WORKSPACE_STATE_ROOT/mount.placeholder"
+
+create_loop_tasks_file() {
+  local template="$HVA_ROOT/pi/tasks-template.md"
+
+  if [[ ! -f "$template" ]]; then
+    echo "tasks template missing: $template" >&2
+    exit 1
+  fi
+
+  if [[ -e "$LOOP_TASK_FILE" ]]; then
+    echo "tasks.md already exists: $LOOP_TASK_FILE"
+    return
+  fi
+
+  install -D -m 0644 "$template" "$LOOP_TASK_FILE"
+  echo "created: $LOOP_TASK_FILE"
+}
+
+ensure_workspace_state_mount_target() {
+  mkdir -p "$WORKSPACE_STATE_ROOT"
+
+  if [[ -f "$WORKSPACE_STATE_PLACEHOLDER_MARKER" ]]; then
+    rm -f "$WORKSPACE_STATE_PLACEHOLDER_MARKER"
+  fi
+}
+
+print_loop_status() {
+  local status_file="$LOOP_STATE_DIR/status"
+  local stop_file="$LOOP_STATE_DIR/stop"
+
+  if [[ -f "$status_file" ]]; then
+    cat "$status_file"
+    return
+  fi
+
+  if [[ -f "$stop_file" ]]; then
+    echo "state: stop_requested"
+    echo "workspace: $WORKSPACE"
+    echo "task_file: $LOOP_TASK_FILE"
+    return
+  fi
+
+  echo "state: idle"
+  echo "workspace: $WORKSPACE"
+  echo "task_file: $LOOP_TASK_FILE"
+}
+
+print_runtime_state() {
+  echo "hva_root: $HVA_ROOT"
+  echo "workspace: $WORKSPACE"
+  echo "workspace_state: $WORKSPACE_STATE_ROOT"
+  echo "session_dir: $WORKSPACE_STATE_ROOT/pi-sessions"
+  echo "session_resume: pi --continue via session_dir"
+  echo "loop_state: $LOOP_STATE_DIR"
+  echo "pi_home_cache: $HVA_STATE_ROOT/pi-home"
+  echo "pi_extension_node_modules: $HVA_STATE_ROOT/pi-extension-node_modules"
+  echo "target_project_state: none"
+}
+
+case "$MODE" in
+  runtime-state)
+    print_runtime_state
+    exit 0
+    ;;
+  loop-init)
+    if [[ ! -f "${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}" ]]; then
+      echo "HVA config not found — creating from sample..."
+      "$HVA_ROOT/internals/sync-config.sh"
+    fi
+    # shellcheck disable=SC1091
+    source "$HVA_ROOT/internals/load-config.sh"
+    create_loop_tasks_file
+    exit 0
+    ;;
+  loop-stop)
+    mkdir -p "$LOOP_STATE_DIR"
+    : > "$LOOP_STATE_DIR/stop"
+    echo "loop stop requested: $LOOP_STATE_DIR/stop"
+    exit 0
+    ;;
+  loop-status)
+    print_loop_status
+    exit 0
+    ;;
+  loop)
+    if [[ ! -f "$LOOP_TASK_FILE" ]]; then
+      echo "tasks.md not found in workspace: $LOOP_TASK_FILE" >&2
+      echo "Create one with: hva --loop-init" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+if [[ ! -f "${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}" ]]; then
+  echo "HVA config not found — creating from sample..."
+  "$HVA_ROOT/internals/sync-config.sh"
+fi
+
+# shellcheck disable=SC1091
+source "$HVA_ROOT/internals/load-config.sh"
+mkdir -p "$LLAMA_MODELS"
+env_validate_required
+hva_load_secrets
+hva_normalize_github_tokens
+
+csv_has_value() {
+  local needle="$1"
+  local csv="${2:-}"
+  local item
+
+  IFS=',' read -r -a _csv_items <<< "$csv"
+  for item in "${_csv_items[@]}"; do
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    if [[ "$item" == "$needle" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+hva_mcp_enabled() {
+  local name="$1"
+
+  if [[ -n "${HVA_MCP_ENABLED:-}" || -n "${HVA_MCP_DISABLED:-}" ]]; then
+    csv_has_value "$name" "${HVA_MCP_ENABLED:-}" && ! csv_has_value "$name" "${HVA_MCP_DISABLED:-}"
+    return
+  fi
+
+  return 1
+}
+
+should_pass_secret_env() {
+  local env_name="$1"
+
+  case "$env_name" in
+    GITHUB_PERSONAL_ACCESS_TOKEN|GITHUB_TOKEN)
+      hva_mcp_enabled "github" || hva_mcp_enabled "rust-docs"
+      ;;
+    BRAVE_API_KEY)
+      ! hva_mcp_enabled "searxng" && hva_mcp_enabled "brave-search"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [[ "$MODE" == "daemon" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
+fi
+
 cleanup() {
   if [[ "$PROMPT_FILE_TEMP" == "1" && -n "$PROMPT_HOST_FILE" && -f "$PROMPT_HOST_FILE" ]]; then
     rm -f "$PROMPT_HOST_FILE"
   fi
+
+  if declare -p PI_LENS_HOST_DIRS >/dev/null 2>&1 && [[ "${#PI_LENS_HOST_DIRS[@]}" -gt 0 ]]; then
+    local lens_dir
+    for lens_dir in "${PI_LENS_HOST_DIRS[@]}"; do
+      if [[ -n "${_pi_lens_host_dirs_preserve[$lens_dir]+x}" ]]; then
+        continue
+      fi
+      if [[ -d "$lens_dir" ]]; then
+        rm -rf "$lens_dir"
+      fi
+    done
+  fi
+
+  rm -f "$WORKSPACE_STATE_PLACEHOLDER_MARKER"
 }
 
 trap cleanup EXIT
 
 write_prompt_text_file() {
   local text="$1"
-  PROMPT_HOST_FILE="$(mktemp "${TMPDIR:-/tmp}/hva-prompt.XXXXXX")"
+  mkdir -p "$WORKSPACE_STATE_ROOT"
+  PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
   PROMPT_FILE_TEMP=1
   printf '%s' "$text" > "$PROMPT_HOST_FILE"
 }
@@ -237,12 +451,12 @@ prepare_diff_review_prompt() {
 
   case "$DIFF_REVIEW_MODE" in
     unstaged) label="unstaged changes" ;;
-    staged)   label="staged changes" ;;
-    commit)   label="diff from $DIFF_REVIEW_TARGET to HEAD" ;;
-    branch)   label="diff from merge-base($DIFF_REVIEW_TARGET, HEAD) to HEAD" ;;
-    main)     label="diff from merge-base(main/master, HEAD) to HEAD" ;;
-    all)      label="all changes" ;;
-    *)        echo "unknown diff review mode: $DIFF_REVIEW_MODE" >&2; exit 1 ;;
+    staged) label="staged changes" ;;
+    commit) label="diff from $DIFF_REVIEW_TARGET to HEAD" ;;
+    branch) label="diff from merge-base($DIFF_REVIEW_TARGET, HEAD) to HEAD" ;;
+    main) label="diff from merge-base(main/master, HEAD) to HEAD" ;;
+    all) label="all changes" ;;
+    *) echo "unknown diff review mode: $DIFF_REVIEW_MODE" >&2; exit 1 ;;
   esac
 
   diff_content="$("$HVA_ROOT/internals/git-diff.sh" "$DIFF_REVIEW_MODE" "$DIFF_REVIEW_TARGET" "$WORKSPACE")"
@@ -254,13 +468,16 @@ prepare_diff_review_prompt() {
 
   validate_diff_review_size "$label" "$diff_content"
 
-  PROMPT_HOST_FILE="$(mktemp "${TMPDIR:-/tmp}/hva-review.XXXXXX")"
+  mkdir -p "$WORKSPACE_STATE_ROOT"
+  PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
   PROMPT_FILE_TEMP=1
   {
     cat <<EOF
-Read the entire codebase first, then review this diff.
+Read entire codebase first.
+Then review this diff.
 
-Focus on: bugs, broken logic, inconsistencies with the rest of the project, missing wiring. Not style.
+Focus on bugs, broken logic, inconsistencies, missing wiring.
+Ignore style.
 
 Review target: $label
 
@@ -292,12 +509,23 @@ prepare_prompt_mode() {
       return
       ;;
   esac
-
 }
 
 prepare_prompt_mode
 
-source "$SCRIPT_DIR/../internals/docker.sh"
+source "$SCRIPT_DIR/../internals/docker-network.sh"
+
+HVA_DOCKER_NETWORK_MODE="$(hva_detect_docker_network_mode)"
+
+if [[ "$HVA_MODE" == "local-pi" ]]; then
+  if [[ -z "${SEARXNG_URL:-}" || "${SEARXNG_URL:-}" == "http://host.docker.internal:8888" ]]; then
+    export SEARXNG_URL
+    SEARXNG_URL="http://127.0.0.1:${SEARXNG_HOST_PORT:-8888}"
+  fi
+elif [[ -z "${SEARXNG_URL:-}" || "${SEARXNG_URL:-}" == "http://host.docker.internal:8888" ]]; then
+  export SEARXNG_URL
+  SEARXNG_URL="$(hva_searxng_url_for_network "$HVA_DOCKER_NETWORK_MODE" "${SEARXNG_HOST_PORT:-8888}")"
+fi
 
 ensure_llama_server() {
   if [[ "${HVA_SKIP_LLAMA:-0}" == "1" ]]; then
@@ -374,69 +602,49 @@ wait_for_llama_server() {
 }
 
 ensure_dev_image() {
-  local current_hash image_hash
-
-  current_hash="$(
-    {
-      cd "$HVA_ROOT/docker"
-      find . -type f -print0 | sort -z | xargs -0 sha256sum
-      sha256sum "$HVA_ROOT/docker/versions.env" | awk '{print $1}'
-      printf 'HVA_CSHARP=%s\n' "$HVA_CSHARP"
-    } | sha256sum | awk '{print $1}'
-  )"
-
-  image_hash="$("${DOCKER[@]}" image inspect "$DEV_IMAGE" --format '{{ index .Config.Labels "dev.hva.source-hash" }}' 2>/dev/null || true)"
-
-  if [[ -z "$image_hash" || "${HVA_REBUILD:-0}" == "1" ]]; then
-    IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
-    return
-  fi
-
-  if [[ "$image_hash" != "$current_hash" ]]; then
-    echo "dev image is out of date: $DEV_IMAGE — rebuilding..."
-    IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
-  fi
+  IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
 }
 
-workspace_has_agent_file() {
-  [[ -e "$WORKSPACE/AGENTS.md" ]]
+dev_container_is_reusable() {
+  local cws
+  if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
+    return 1
+  fi
+
+  # Verify the extension bind-mount is still writable — a cache nuke can leave
+  # the container holding an nlink=0 (orphaned) inode that silently rejects writes.
+  if ! "${DOCKER[@]}" exec "$dev_name" bash -c \
+       'touch /hva/pi/extensions/.reuse-check 2>/dev/null && rm -f /hva/pi/extensions/.reuse-check' \
+       2>/dev/null; then
+    return 1
+  fi
+
+  cws="$("${DOCKER[@]}" inspect "$dev_name" --format '{{ index .Config.Labels "dev.hva.workspace" }}' 2>/dev/null || true)"
+  [[ "$cws" == "$WORKSPACE" ]]
 }
 
-had_agent_file=0
-copied_agent_file=0
-if workspace_has_agent_file; then
-  had_agent_file=1
-fi
-
-ensure_workspace_agents() {
-  if [[ "${HVA_COPY_AGENTS:-1}" == "0" ]]; then
-    return
+ensure_dev_container() {
+  local cws cimg img
+  if "${DOCKER[@]}" inspect "$dev_name" &>/dev/null; then
+    cws="$("${DOCKER[@]}" inspect "$dev_name" --format '{{ index .Config.Labels "dev.hva.workspace" }}')"
+    cimg="$("${DOCKER[@]}" inspect "$dev_name" --format '{{.Image}}')"
+    img="$("${DOCKER[@]}" image inspect "$DEV_IMAGE" --format '{{.Id}}')"
+    if [[ "$cws" != "$WORKSPACE" || "$cimg" != "$img" ]]; then
+      if [[ "$cws" != "$WORKSPACE" ]]; then
+        echo "dev container workspace changed ($cws → $WORKSPACE); restarting" >&2
+      else
+        echo "dev image updated; restarting dev container" >&2
+      fi
+      "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
+    fi
   fi
-
-  local template="$HVA_ROOT/nanocoder/example-agent.md"
-
-  if (( had_agent_file == 1 )); then
-    return
+  if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
+    "${DOCKER[@]}" run -d \
+      --name "$dev_name" \
+      --label "dev.hva.workspace=$WORKSPACE" \
+      "${start_docker_args[@]}" \
+      "$DEV_IMAGE" sleep infinity >/dev/null
   fi
-
-  if [[ ! -f "$template" ]]; then
-    echo "agent template missing: $template" >&2
-    exit 1
-  fi
-
-  if ! install -m 0644 "$template" "$WORKSPACE/AGENTS.md"; then
-    echo "failed to copy AGENTS.md from template: $template" >&2
-    exit 1
-  fi
-  copied_agent_file=1
-}
-
-
-ensure_searxng_server() {
-  if [[ ",$HVA_MCP_ENABLED," != *",searxng,"* ]]; then
-    return
-  fi
-  "$HVA_ROOT/internals/run-hva-searxng.sh" start >/dev/null
 }
 
 print_services() {
@@ -444,180 +652,236 @@ print_services() {
     return
   fi
   local svc="llama:$LLAMA_HOST_PORT"
-  if [[ ",$HVA_MCP_ENABLED," == *",searxng,"* ]]; then
+  if [[ ",${HVA_MCP_ENABLED:-}," == *",searxng,"* ]]; then
     svc="$svc, searxng:${SEARXNG_HOST_PORT:-8888}"
   fi
   echo "services: $svc"
 }
 
+print_runtime_status() {
+  local session_label="auto-continue"
+  if [[ "$PI_SESSION_MODE" == "new" ]]; then
+    session_label="new"
+  fi
+  echo "runtime: docker network: $HVA_DOCKER_NETWORK_MODE, session: $session_label"
+}
+
+ensure_searxng_server() {
+  if [[ ",${HVA_MCP_ENABLED:-}," != *",searxng,"* ]]; then
+    return
+  fi
+  "$HVA_ROOT/internals/run-hva-searxng.sh" start >/dev/null
+}
+
+prepare_local_pi_env() {
+  local pi_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+
+  "$HVA_ROOT/internals/overwrite-local-confs.sh" >/dev/null
+
+  export HVA_PI_EXTENSIONS_DIR="$HVA_ROOT/pi/extensions"
+  export HVA_PI_SKILLS_DIR="$HVA_ROOT/pi/skills"
+  export HVA_PI_SESSION_DIR="$pi_dir/sessions"
+}
+
+run_local_pi() {
+  local -a run_args=()
+  local prompt_text=""
+
+  if [[ "$PI_SESSION_MODE" == "continue" ]]; then
+    run_args+=(--continue)
+  fi
+
+  prepare_local_pi_env
+
+  # shellcheck disable=SC1091
+  source "$HVA_ROOT/internals/pi-runtime.sh"
+
+  cd "$WORKSPACE"
+  if [[ -n "$PROMPT_HOST_FILE" ]]; then
+    prompt_text="$(cat "$PROMPT_HOST_FILE")"
+    hva_run_pi "" "${run_args[@]}" --print "$prompt_text"
+  else
+    hva_run_pi "" "${run_args[@]}"
+  fi
+}
+
 ensure_llama_server
 ensure_searxng_server
 wait_for_llama_server
+PI_SESSION_MODE="continue"
+if [[ "${HVA_NEW_SESSION:-0}" == "1" ]]; then
+  PI_SESSION_MODE="new"
+fi
+
 if [[ "$MODE" != "prompt" ]]; then
   print_services
 fi
-ensure_dev_image
-ensure_workspace_agents
+if [[ "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
+  print_runtime_status
+fi
 
-STATE_ROOT="$HVA_ROOT/.hva-state"
-mkdir -p "$STATE_ROOT"
-STATE_ROOT="$(cd "$STATE_ROOT" && pwd -P)"
+if [[ "$HVA_MODE" == "local-pi" ]]; then
+  run_local_pi
+  exit 0
+fi
 
-CARGO_REGISTRY_CACHE="$STATE_ROOT/cargo/registry"
-CARGO_GIT_CACHE="$STATE_ROOT/cargo/git"
-UV_CACHE="$STATE_ROOT/uv"
-NPM_CACHE="$STATE_ROOT/npm"
-MCP_PYPI_CACHE="$STATE_ROOT/mcp-pypi"
-RUST_DOCS_CACHE="$STATE_ROOT/rust-docs-mcp"
-GIT_FILE_MASK="$STATE_ROOT/empty-git-file"
-NANOCODER_CONFIG_ROOT="$STATE_ROOT/nanocoder-configs"
-NANOCODER_DATA_ROOT="$STATE_ROOT/nanocoder-data"
+ensure_workspace_state_mount_target
+CARGO_REGISTRY_CACHE="$HVA_STATE_ROOT/cargo/registry"
+CARGO_GIT_CACHE="$HVA_STATE_ROOT/cargo/git"
+UV_CACHE="$HVA_STATE_ROOT/uv"
+NPM_CACHE="$HVA_STATE_ROOT/npm"
+PI_EXTENSION_NODE_MODULES="$HVA_STATE_ROOT/pi-extension-node_modules"
+GIT_FILE_MASK="$HVA_STATE_ROOT/empty-git-file"
+PI_HOME_ROOT="$HVA_STATE_ROOT/pi-home"
+PI_AGENT_ROOT="$PI_HOME_ROOT/agent"
 
 mkdir -p \
   "$CARGO_REGISTRY_CACHE" \
   "$CARGO_GIT_CACHE" \
   "$UV_CACHE" \
   "$NPM_CACHE" \
-  "$MCP_PYPI_CACHE" \
-  "$RUST_DOCS_CACHE" \
-  "$NANOCODER_CONFIG_ROOT" \
-  "$NANOCODER_DATA_ROOT"
+  "$PI_EXTENSION_NODE_MODULES" \
+  "$PI_AGENT_ROOT"
 : > "$GIT_FILE_MASK"
 
-if [[ "${HVA_LOAD_MCP_ENV:-1}" == "1" && -f "$HOME/.config/nanocoder/mcp.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$HOME/.config/nanocoder/mcp.env"
-  set +a
-fi
-
-if [[ -z "${GITHUB_TOKEN-}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN-}" ]]; then
-  export GITHUB_TOKEN="$GITHUB_PERSONAL_ACCESS_TOKEN"
-fi
-
-if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN-}" && -n "${GITHUB_TOKEN-}" ]]; then
-  export GITHUB_PERSONAL_ACCESS_TOKEN="$GITHUB_TOKEN"
-fi
-
-workspace_base="$(basename "$WORKSPACE")"
-safe_workspace_name="$(printf '%s' "$workspace_base" | tr -c 'A-Za-z0-9_.-' '-')"
-if [[ -z "$safe_workspace_name" ]]; then
-  safe_workspace_name="workspace"
-fi
-
-workspace_hash="$(printf '%s' "$WORKSPACE" | sha256sum | awk '{print substr($1, 1, 16)}')"
-NANOCODER_CONFIG_CACHE="$NANOCODER_CONFIG_ROOT/shared"
-NANOCODER_DATA_CACHE="$NANOCODER_DATA_ROOT/$safe_workspace_name-$workspace_hash"
-mkdir -p "$NANOCODER_DATA_CACHE"
-
-prepare_nanocoder_config() {
-  local preferences_source="$HVA_ROOT/nanocoder/nanocoder-preferences.sample.json"
-  if [[ -f "$HVA_ROOT/nanocoder/nanocoder-preferences.json" ]]; then
-    preferences_source="$HVA_ROOT/nanocoder/nanocoder-preferences.json"
-  fi
-
-  mkdir -p "$NANOCODER_CONFIG_CACHE/bin" "$NANOCODER_CONFIG_CACHE/logs"
-
-  install -m 0644 "$HVA_ROOT/nanocoder/.mcp.json" "$NANOCODER_CONFIG_CACHE/.mcp.json"
-
-  local prefs_dest="$NANOCODER_CONFIG_CACHE/nanocoder-preferences.json"
-  if [[ ! -e "$prefs_dest" ]]; then
-    install -m 0644 "$preferences_source" "$prefs_dest"
-  elif command -v jq >/dev/null 2>&1; then
-    # merge: sample provides new keys/defaults, existing user prefs override
-    local merged
-    merged="$(jq -s '.[0] * .[1]' "$preferences_source" "$prefs_dest")" \
-      && printf '%s\n' "$merged" > "$prefs_dest"
-  fi
-  for helper in "$HVA_ROOT"/nanocoder/bin/*; do
-    helper_name="$(basename "$helper")"
-    helper_target="$NANOCODER_CONFIG_CACHE/bin/$helper_name"
-    ln -sfn "/hva/nanocoder/bin/$helper_name" "$helper_target"
-  done
-
-  "$HVA_ROOT/nanocoder/render-lsp-mask.sh" "$NANOCODER_CONFIG_CACHE/bin/lsp-mask" >/dev/null
+prepare_pi_config() {
+  local pi_base_url
+  pi_base_url="$(hva_llama_base_url_for_network "$HVA_DOCKER_NETWORK_MODE" "$LLAMA_HOST_PORT")"
+  mkdir -p "$PI_AGENT_ROOT"
+  "$HVA_ROOT/pi/render-settings.sh" "$PI_AGENT_ROOT/settings.json" >/dev/null
+  "$HVA_ROOT/pi/render-models.sh" "$PI_AGENT_ROOT/models.json" "$pi_base_url" >/dev/null
 }
 
-dev_name="hva-dev-$safe_workspace_name-$$"
-prepare_nanocoder_config
+prepare_pi_config
+dev_name="hva-dev"
 
-"$HVA_ROOT/nanocoder/render-agents-config.sh" "$NANOCODER_CONFIG_CACHE/agents.config.json" "http://host.docker.internal:$LLAMA_HOST_PORT/v1" >/dev/null
-
-stdio_args=(-i)
-if [[ -t 0 && -t 1 ]]; then
-  stdio_args=(-it)
+stdio_args=()
+if [[ "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
+  stdio_args=(-i)
+  if [[ -t 0 && -t 1 ]]; then
+    stdio_args=(-it)
+  fi
 fi
 
-docker_args=(
-  --rm
+exec_args=(
   "${stdio_args[@]}"
+  -w /workspace
+)
+
+
+declare -A _pi_lens_roots_seen=()
+declare -A _pi_lens_host_dirs_preserve=()
+PI_LENS_TMPFS_TARGETS=()
+PI_LENS_HOST_DIRS=()
+
+add_pi_lens_tmpfs_target() {
+  local root="$1"
+  local target="/workspace"
+  local lens_dir
+  local rel_path
+
+  root="$(realpath "$root")"
+  if [[ -z "${_pi_lens_roots_seen[$root]+x}" ]]; then
+    _pi_lens_roots_seen["$root"]=1
+    lens_dir="$root/.pi-lens"
+    if [[ -e "$lens_dir" ]]; then
+      _pi_lens_host_dirs_preserve["$lens_dir"]=1
+    fi
+    PI_LENS_HOST_DIRS+=("$lens_dir")
+    if [[ "$root" != "$WORKSPACE" ]]; then
+      rel_path="${root#"$WORKSPACE"/}"
+      target="/workspace/$rel_path"
+    fi
+    PI_LENS_TMPFS_TARGETS+=("$target/.pi-lens")
+  fi
+}
+
+add_pi_lens_tmpfs_target "$WORKSPACE"
+while IFS= read -r -d '' manifest_path; do
+  add_pi_lens_tmpfs_target "$(dirname "$manifest_path")"
+done < <(
+  find "$WORKSPACE" \
+    \( -name .git -o -name node_modules -o -name target -o -name .hva-state \) -prune -o \
+    \( -name package.json -o -name Cargo.toml -o -name pyproject.toml -o -name go.mod -o -name Gemfile -o -name composer.json -o -name pom.xml -o -name build.gradle -o -name build.gradle.kts \) \
+    -print0 2>/dev/null
+)
+
+start_docker_args=(
   --init
-  --name "$dev_name"
-  --add-host host.docker.internal:host-gateway
+  -e PI_SKIP_VERSION_CHECK=1
   -v "$WORKSPACE:/workspace"
+  -v "$WORKSPACE_STATE_ROOT:/hva-state"
   -v "$CARGO_REGISTRY_CACHE:/home/$DEV_USER/.cargo/registry"
   -v "$CARGO_GIT_CACHE:/home/$DEV_USER/.cargo/git"
   -v "$UV_CACHE:/home/$DEV_USER/.cache/uv"
   -v "$NPM_CACHE:/home/$DEV_USER/.npm"
-  -v "$MCP_PYPI_CACHE:/home/$DEV_USER/.cache/mcp-pypi"
-  -v "$RUST_DOCS_CACHE:/home/$DEV_USER/.cache/rust-docs-mcp"
-  -v "$NANOCODER_CONFIG_CACHE:/home/$DEV_USER/.config/nanocoder"
-  -v "$NANOCODER_DATA_CACHE:/home/$DEV_USER/.local/share/nanocoder"
-  -v "$HVA_ROOT/nanocoder:/hva/nanocoder:ro"
+  -v "$PI_HOME_ROOT:/home/$DEV_USER/.pi"
+  -v "$HVA_ROOT/pi/extensions:/hva/pi/extensions-src:ro"
+  -v "$HVA_ROOT/pi/skills:/hva/pi/skills:ro"
+  -v "$PI_EXTENSION_NODE_MODULES:/hva/pi/extensions"
   -v "$HVA_ROOT/docker/versions.env:/hva/docker/versions.env:ro"
   -v "$HVA_ROOT/internals/docker.sh:/hva/internals/docker.sh:ro"
-  -v "$HVA_ROOT/docker/nanocoder-wrapper:/usr/local/bin/nanocoder:ro"
+  -v "$HVA_ROOT/internals/pi-loop.sh:/hva/internals/pi-loop.sh:ro"
+  -v "$HVA_ROOT/internals/pi-runtime.sh:/hva/internals/pi-runtime.sh:ro"
   -v "$HVA_ROOT/internals/save-session.sh:/hva/internals/save-session.sh:ro"
   -w /workspace
-  -e CARGO_NET_GIT_FETCH_WITH_CLI=true
-  -e RUST_BACKTRACE=1
-  -e NANOCODER_CONFIG_DIR="/home/$DEV_USER/.config/nanocoder"
-  -e NANOCODER_DATA_DIR="/home/$DEV_USER/.local/share/nanocoder"
-  -e NANOCODER_DEVELOPMENT_MODE=yolo
-  -e NANOCODER_TRUST_CONTAINER=1
-  -e NANOCODER_CONTEXT_LIMIT="$LLAMA_CONTEXT_SIZE"
-  -e NANOCODER_DEFAULT_SHUTDOWN_TIMEOUT=500
 )
 
-passed_secret_envs=()
+for target in "${PI_LENS_TMPFS_TARGETS[@]}"; do
+  start_docker_args+=(--tmpfs "$target:rw,noexec,nosuid,nodev,size=50m")
+done
+
+if [[ "$HVA_DOCKER_NETWORK_MODE" == "host" ]]; then
+  start_docker_args+=(--network host)
+else
+  start_docker_args+=(--network "$HVA_DOCKER_NETWORK_MODE" --add-host host.docker.internal:host-gateway)
+fi
+
+if [[ "$MODE" == "loop" ]]; then
+  exec_args+=(
+    -e HVA_LOOP_TASK_FILE="/workspace/tasks.md"
+    -e HVA_LOOP_STATE_DIR="/hva-state/loop"
+    -e HVA_LOOP_PI_SESSION_DIR="/hva-state/pi-loop-sessions"
+  )
+  if [[ "${HVA_NEW_SESSION:-0}" == "1" ]]; then
+    exec_args+=(-e HVA_LOOP_NEW_SESSION=1)
+  fi
+fi
+
+add_required_container_env() {
+  local env_name="$1"
+  if [[ -z "${!env_name+x}" ]]; then
+    echo "required container env missing: $env_name" >&2
+    exit 1
+  fi
+  start_docker_args+=(-e "${env_name}=${!env_name}")
+}
+
+add_optional_container_env() {
+  local env_name="$1"
+  if [[ -n "${!env_name-}" ]]; then
+    start_docker_args+=(-e "${env_name}=${!env_name}")
+  fi
+}
+
 for env_name in \
   HVA_MCP_ENABLED \
   HVA_MCP_DISABLED \
-  HVA_LSP_ENABLED \
-  HVA_LSP_DISABLED \
-  HVA_LOG_NANOCODER_OUTPUT \
-  HVA_LOG_TOOL_OUTPUT \
+  SEARXNG_URL; do
+  add_required_container_env "$env_name"
+done
+
+for env_name in \
   GITHUB_PERSONAL_ACCESS_TOKEN \
   GITHUB_TOKEN \
-  BRAVE_API_KEY \
-  HF_TOKEN \
-  HUGGING_FACE_HUB_TOKEN; do
-  if [[ -n "${!env_name-}" ]]; then
-    case "$env_name" in
-      BRAVE_API_KEY)
-        [[ ",$HVA_MCP_ENABLED," == *",brave-search,"* ]] || continue
-        ;;
-      GITHUB_PERSONAL_ACCESS_TOKEN|GITHUB_TOKEN)
-        if [[ ",$HVA_MCP_ENABLED," != *",github,"* && ",$HVA_MCP_ENABLED," != *",rust-docs,"* ]]; then
-          continue
-        fi
-        ;;
-    esac
-    docker_args+=(-e "$env_name")
-    case "$env_name" in
-      GITHUB_PERSONAL_ACCESS_TOKEN|GITHUB_TOKEN|BRAVE_API_KEY|HF_TOKEN|HUGGING_FACE_HUB_TOKEN)
-        passed_secret_envs+=("$env_name")
-        ;;
-    esac
+  BRAVE_API_KEY; do
+  if [[ -n "${!env_name-}" ]] && should_pass_secret_env "$env_name"; then
+    add_optional_container_env "$env_name"
   fi
 done
 
-if [[ -n "$_HVA_AUTO_RESUME_ID" ]]; then
-  docker_args+=(-e "NANOCODER_AUTO_RESUME=$_HVA_AUTO_RESUME_ID")
-fi
-
 if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
-  docker_args+=(
+  start_docker_args+=(
     --cap-add SYS_PTRACE
     --security-opt seccomp=unconfined
   )
@@ -625,8 +889,8 @@ fi
 
 if [[ -S /var/run/docker.sock ]]; then
   docker_sock_gid="$(stat -c '%g' /var/run/docker.sock)"
-  if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
-    docker_args+=(
+  if [[ "${HVA_MOUNT_DOCKER_SOCKET:-0}" == "1" ]]; then
+    start_docker_args+=(
       -v /var/run/docker.sock:/var/run/docker.sock
       --group-add "$docker_sock_gid"
     )
@@ -634,15 +898,15 @@ if [[ -S /var/run/docker.sock ]]; then
 fi
 
 if [[ "${HVA_MOUNT_GITCONFIG:-0}" == "1" && -f "$HOME/.gitconfig" ]]; then
-  docker_args+=(-v "$HOME/.gitconfig:/home/$DEV_USER/.gitconfig:ro")
+  start_docker_args+=(-v "$HOME/.gitconfig:/home/$DEV_USER/.gitconfig:ro")
 fi
 
 if [[ "${HVA_MOUNT_NVIM:-0}" == "1" && -d "$HOME/.config/nvim" ]]; then
-  docker_args+=(-v "$HOME/.config/nvim:/home/$DEV_USER/.config/nvim:ro")
+  start_docker_args+=(-v "$HOME/.config/nvim:/home/$DEV_USER/.config/nvim:ro")
 fi
 
 if [[ "${HVA_MOUNT_SSH:-0}" == "1" && -d "$HOME/.ssh" ]]; then
-  docker_args+=(-v "$HOME/.ssh:/home/$DEV_USER/.ssh:ro")
+  start_docker_args+=(-v "$HOME/.ssh:/home/$DEV_USER/.ssh:ro")
 fi
 
 while IFS= read -r -d '' git_path; do
@@ -653,90 +917,69 @@ while IFS= read -r -d '' git_path; do
   dest="/workspace/$rel_path"
 
   if [[ -d "$git_path" ]]; then
-    docker_args+=(--tmpfs "$dest:rw,noexec,nosuid,nodev,size=64k")
+    start_docker_args+=(--tmpfs "$dest:rw,noexec,nosuid,nodev,size=64k")
   elif [[ -f "$git_path" ]]; then
-    docker_args+=(--mount "type=bind,source=$GIT_FILE_MASK,target=$dest,readonly")
+    start_docker_args+=(--mount "type=bind,source=$GIT_FILE_MASK,target=$dest,readonly")
   fi
 done < <(find "$WORKSPACE" -name .git -prune -print0 2>/dev/null)
 
-run_nanocoder_init_if_needed() {
-  if [[ "${HVA_INIT_WORKSPACE:-0}" != "1" ]]; then
-    return
-  fi
-
-  if [[ "$HVA_MODE" != "nanocoder" || $# -ne 0 ]]; then
-    return
-  fi
-
-  if [[ -d "$WORKSPACE/.nanocoder" ]]; then
-    return
-  fi
-
-  echo "initializing Nanocoder workspace with /init"
-  if ! "${DOCKER[@]}" run "${docker_args[@]}" -e 'NANOCODER_MCPSERVERS={"mcpServers":{}}' "$DEV_IMAGE" nanocoder run "/init"; then
-    echo "warning: nanocoder /init failed; continuing into container" >&2
-  fi
-}
-
-if [[ "$HVA_MODE" == "nanocoder" && $# -eq 0 && -z "$PROMPT_HOST_FILE" ]]; then
-  run_nanocoder_init_if_needed "$@"
-fi
-
-if [[ -n "$PROMPT_HOST_FILE" ]]; then
-  docker_args+=(--mount "type=bind,source=$PROMPT_HOST_FILE,target=$PROMPT_CONTAINER_FILE,readonly")
-fi
-
 if [[ $# -eq 0 ]]; then
-  case "$HVA_MODE" in
-    bash)
-      set -- bash
-      ;;
-    nanocoder)
-      if [[ -n "$PROMPT_HOST_FILE" ]]; then
-        set -- bash -lc 'nanocoder run "$(cat "$1")"; /hva/internals/save-session.sh' bash "$PROMPT_CONTAINER_FILE"
-      else
-        set -- bash -lc 'nanocoder; /hva/internals/save-session.sh'
-      fi
-      ;;
-    *)
-      echo "unknown HVA_MODE: $HVA_MODE" >&2
-      exit 1
-      ;;
-  esac
+  if [[ "$MODE" == "loop" ]]; then
+    set -- bash -lc '
+source /hva/internals/pi-runtime.sh
+hva_ensure_pi_extension_deps
+/hva/internals/pi-loop.sh
+'
+  else
+    case "$HVA_MODE" in
+      bash)
+        set -- bash
+        ;;
+      pi)
+        if [[ -n "$PROMPT_HOST_FILE" ]]; then
+          set -- bash -lc '
+source /hva/internals/pi-runtime.sh
+hva_ensure_pi_extension_deps
+session_dir="/hva-state/pi-sessions"
+session_mode="$1"
+prompt_text="$(cat "$2")"
+run_args=()
+if [[ "$session_mode" == "continue" ]]; then
+  run_args+=(--continue)
+fi
+HVA_PI_SESSION_DIR="$session_dir" hva_run_pi "" "${run_args[@]}" --print "$prompt_text"
+' bash "$PI_SESSION_MODE" "$PROMPT_CONTAINER_FILE"
+        else
+          set -- bash -lc '
+source /hva/internals/pi-runtime.sh
+hva_ensure_pi_extension_deps
+session_dir="/hva-state/pi-sessions"
+session_mode="$1"
+run_args=()
+if [[ "$session_mode" == "continue" ]]; then
+  run_args+=(--continue)
+fi
+HVA_PI_SESSION_DIR="$session_dir" hva_run_pi "" "${run_args[@]}"
+' bash "$PI_SESSION_MODE"
+        fi
+        ;;
+      *)
+        echo "unknown HVA_MODE: $HVA_MODE" >&2
+        exit 1
+        ;;
+    esac
+  fi
 fi
 
 if [[ "$MODE" != "prompt" ]]; then
-  # Compute AGENTS.md note for workspace line
-  _agents_note=""
-  if (( copied_agent_file == 1 )); then
-    _agents_note=" · AGENTS.md: copied"
-  elif (( had_agent_file == 1 )); then
-    agents_template="$HVA_ROOT/nanocoder/example-agent.md"
-    if [[ -f "$agents_template" && -f "$WORKSPACE/AGENTS.md" ]] && command -v sha256sum >/dev/null 2>&1; then
-      template_agents_sha="$(sha256sum "$agents_template" | awk '{print $1}')"
-      project_agents_sha="$(sha256sum "$WORKSPACE/AGENTS.md" | awk '{print $1}')"
-      if [[ "$template_agents_sha" != "$project_agents_sha" ]]; then
-        _agents_note=" · AGENTS.md: differs (update: cp \"$agents_template\" \"$WORKSPACE/AGENTS.md\")"
-      fi
-    fi
-  fi
-  echo "workspace: $WORKSPACE ($LLAMA_MODEL_ALIAS · $LLAMA_MODEL)$_agents_note"
-  if (( ${#passed_secret_envs[@]} > 0 )); then
-    echo "secrets: ${passed_secret_envs[*]}"
-  fi
-  if [[ "${HVA_UNSAFE:-0}" == "1" ]]; then
-    echo "unsafe mode: SYS_PTRACE, seccomp=unconfined, docker socket"
+  echo "workspace: $WORKSPACE ($LLAMA_MODEL_ALIAS · $LLAMA_MODEL)"
+  if [[ "${HVA_MOUNT_DOCKER_SOCKET:-0}" == "1" ]]; then
+    echo "host docker socket mounted"
   fi
 fi
 
-"${DOCKER[@]}" run "${docker_args[@]}" "$DEV_IMAGE" "$@"
-
-if [[ -t 1 && "${HVA_SKIP_LLAMA:-0}" != "1" && "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
-  if [[ ",$HVA_MCP_ENABLED," == *",searxng,"* ]]; then
-    echo "llama + searxng still running — stop with:"
-  else
-    echo "llama server still running — stop with:"
-  fi
-  echo "hva --stop"
-  echo
+if ! dev_container_is_reusable; then
+  ensure_dev_image
+  ensure_dev_container
 fi
+"${DOCKER[@]}" exec "${exec_args[@]}" "$dev_name" "$@"

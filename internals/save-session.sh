@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# Writes the most recently accessed nanocoder session ID for /workspace to the
-# workspace state file.  Called from the container entrypoint after nanocoder
-# exits so the next hva run can auto-resume the same session.
+# Writes newest Pi session path for workspace state.
 
-sessions_json="${NANOCODER_DATA_DIR}/sessions/sessions.json"
-state_file="/workspace/.hva-state/nanocoder_session"
+set -euo pipefail
 
-if [ ! -f "$sessions_json" ] || ! command -v jq >/dev/null 2>&1; then
+session_dir="${HVA_PI_SESSION_DIR:-/hva-state/pi-sessions}"
+state_file="${HVA_PI_SESSION_STATE_FILE:-/hva-state/pi_session}"
+
+if [[ ! -d "$session_dir" ]]; then
   exit 0
 fi
 
-session_id="$(
-  jq -r '[.[] | select(.workingDirectory == "/workspace")] |
-         sort_by(.lastAccessedAt) | last | .id // empty' \
-    "$sessions_json" 2>/dev/null || true
+latest_session="$(
+  find "$session_dir" -type f -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null \
+    | sort -nr \
+    | awk 'NR == 1 { print substr($0, index($0, " ") + 1) }'
 )"
 
-if [ -n "$session_id" ]; then
-  mkdir -p /workspace/.hva-state
-  printf '%s\n' "$session_id" > "$state_file"
+if [[ -n "$latest_session" ]]; then
+  mkdir -p "$(dirname "$state_file")"
+  if [[ "$latest_session" == /workspace/* ]]; then
+    latest_session="${latest_session#/workspace/}"
+  fi
+  printf '%s\n' "$latest_session" > "$state_file"
 fi

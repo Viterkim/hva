@@ -3,22 +3,17 @@ set -euo pipefail
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)"
-NANOCODER_DIR="${NANOCODER_CONFIG_DIR:-$HOME/.config/nanocoder}"
+PI_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 
-mkdir -p "$NANOCODER_DIR/bin"
+# shellcheck disable=SC1091
+source "$ROOT/internals/load-config.sh"
+env_validate_required
 
-cp -n "$ROOT/nanocoder/nanocoder-preferences.sample.json" "$ROOT/nanocoder/nanocoder-preferences.json"
-"$ROOT/nanocoder/render-agents-config.sh" "$ROOT/nanocoder/agents.config.json"
-"$ROOT/nanocoder/render-mcp-config.sh" "$NANOCODER_DIR/.mcp.json"
-"$ROOT/nanocoder/render-lsp-mask.sh" "$NANOCODER_DIR/bin/lsp-mask"
+"$ROOT/internals/install-pi-extension-deps.sh"
 
-ln -sfn "$ROOT/nanocoder/.gitignore" "$NANOCODER_DIR/.gitignore"
-ln -sfn "$ROOT/nanocoder/agents.config.json" "$NANOCODER_DIR/agents.config.json"
-ln -sfn "$ROOT/nanocoder/nanocoder-preferences.json" "$NANOCODER_DIR/nanocoder-preferences.json"
+mkdir -p "$PI_DIR"
 
-for helper in "$ROOT"/nanocoder/bin/*; do
-  helper_name="$(basename "$helper")"
-  ln -sfn "$helper" "$NANOCODER_DIR/bin/$helper_name"
-done
+"$ROOT/pi/render-settings.sh" "$PI_DIR/settings.json" >/dev/null
+"$ROOT/pi/render-models.sh" "$PI_DIR/models.json" "http://127.0.0.1:${LLAMA_HOST_PORT:-8080}/v1" >/dev/null
 
-printf 'nanocoder config synced: %s\n' "$NANOCODER_DIR"
+printf 'pi config synced: %s\n' "$PI_DIR"
