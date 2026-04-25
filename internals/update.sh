@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 HVA_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 STATE_ROOT="$HVA_ROOT/.hva-state"
-NANOCODER_CONFIG_ROOT="$STATE_ROOT/nanocoder-configs"
+PI_CONFIG_ROOT="$STATE_ROOT/pi-agent"
 
 echo "=== hva update ==="
 echo ""
@@ -17,14 +17,14 @@ echo "pulling latest changes..."
 git pull --ff-only
 echo ""
 
-echo "syncing env/env-source.sh with new sample vars..."
-"$HVA_ROOT/internals/sync-env-source.sh"
+echo "ensuring config/hva-conf.json exists..."
+"$HVA_ROOT/internals/sync-config.sh"
 echo ""
 
-if [[ -d "$NANOCODER_CONFIG_ROOT" ]]; then
-  echo "nanocoder config cache is versioned now — stale config will auto-refresh on next: hva"
+if [[ -d "$PI_CONFIG_ROOT" ]]; then
+  echo "pi config exists — generated files will refresh on next: hva"
 else
-  echo "nanocoder config cache will be created fresh on next: hva"
+  echo "pi config will be created fresh on next: hva"
 fi
 echo ""
 

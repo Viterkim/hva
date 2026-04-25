@@ -7,14 +7,20 @@ HVA_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)"
 usage() {
   cat <<EOF
 Usage:
-  ./healthcheck.sh [--tail LINES]
+  ./healthcheck.sh [--tail LINES] [--since DURATION] [--debug-cache]
 
 Summarizes the running llama.cpp server and recent Docker logs without dumping
 the full log stream.
+
+By default this is strict for HVA's cache goal: erased invalidated checkpoints
+are BAD. Use --debug-cache when intentionally switching projects/sessions and
+you want the cache details without a failing exit.
 EOF
 }
 
 TAIL_LINES=3000
+SINCE_ARG=""
+CACHE_DEBUG=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tail)
@@ -24,6 +30,18 @@ while [[ $# -gt 0 ]]; do
       fi
       TAIL_LINES="$2"
       shift 2
+      ;;
+    --since)
+      if [[ $# -lt 2 ]]; then
+        echo "--since requires a Docker duration or timestamp" >&2
+        exit 1
+      fi
+      SINCE_ARG="$2"
+      shift 2
+      ;;
+    --debug-cache)
+      CACHE_DEBUG=1
+      shift
       ;;
     -h|--help|help)
       usage
@@ -44,8 +62,8 @@ case "$TAIL_LINES" in
     ;;
 esac
 
-source "$HVA_ROOT/env/env-source.sh"
-source "$HVA_ROOT/env/env-validate.sh"
+# shellcheck disable=SC1091
+source "$HVA_ROOT/internals/load-config.sh"
 env_validate_common
 source "$HVA_ROOT/internals/docker.sh"
 
@@ -63,7 +81,11 @@ if [[ -z "$container_id" ]]; then
   exit 2
 fi
 
-logs="$("${DOCKER[@]}" logs --tail "$TAIL_LINES" "$LLAMA_CONTAINER" 2>&1 || true)"
+log_args=(--tail "$TAIL_LINES")
+if [[ -n "$SINCE_ARG" ]]; then
+  log_args+=(--since "$SINCE_ARG")
+fi
+logs="$("${DOCKER[@]}" logs "${log_args[@]}" "$LLAMA_CONTAINER" 2>&1 || true)"
 inspect_json="$("${DOCKER[@]}" inspect "$LLAMA_CONTAINER" 2>/dev/null || echo '[]')"
 
 count_re() {
@@ -90,6 +112,7 @@ ctx_arg="$(jq -r '.[0].Args as $args | ($args | index("-c")) as $i | if $i == nu
 ncmoe_arg="$(jq -r '.[0].Args as $args | ($args | index("-ncmoe")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 fit_arg="$(jq -r '.[0].Args as $args | ($args | index("--fit")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 fitt_arg="$(jq -r '.[0].Args as $args | ($args | index("-fitt")) as $i | if $i == null then "off" else $args[$i + 1] end' <<< "$inspect_json")"
+kv_unified_arg="$(jq -r '.[0].Args as $args | if ($args | index("--kv-unified")) == null then "missing" else "on" end' <<< "$inspect_json")"
 reasoning_budget_arg="$(jq -r '.[0].Args as $args | ($args | index("--reasoning-budget")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 temperature_arg="$(jq -r '.[0].Args as $args | ($args | index("--temperature")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
 top_p_arg="$(jq -r '.[0].Args as $args | ($args | index("--top-p")) as $i | if $i == null then "unknown" else $args[$i + 1] end' <<< "$inspect_json")"
@@ -116,6 +139,7 @@ checkpoint_created_count="$(count_re 'created context checkpoint')"
 checkpoint_erased_count="$(count_re 'erased invalidated context checkpoint')"
 checkpoint_check_count="$(count_re 'Checking checkpoint with')"
 checkpoint_periodic_count="$(count_re '[0-9]+ tokens since last checkpoint')"
+checkpoint_forced_full_count="$(count_re 'forcing full prompt re-processing due to lack of cache data')"
 request_ok_count="$(count_re 'done request: .* 200')"
 
 last_prompt_eval="$(last_re 'prompt eval time =')"
@@ -179,9 +203,9 @@ if command -v nvidia-smi >/dev/null 2>&1; then
 fi
 
 verdict="OK"
-if (( bad_count > 0 )) || [[ "$api_status" != "ok" ]]; then
+if (( bad_count > 0 )) || [[ "$api_status" != "ok" ]] || (( CACHE_DEBUG == 0 && checkpoint_erased_count > 0 )); then
   verdict="BAD"
-elif (( truncated_count > 0 || cache_evict_count > 0 || budget_exhausted_count > 0 )); then
+elif (( truncated_count > 0 || cache_evict_count > 0 || budget_exhausted_count > 0 || checkpoint_forced_full_count > 0 )); then
   verdict="WARN"
 fi
 
@@ -190,15 +214,19 @@ echo "container: $LLAMA_CONTAINER ($container_status, started $container_started
 echo "image: $image"
 echo "api: http://127.0.0.1:$LLAMA_HOST_PORT/v1/models ($api_status, model $api_model)"
 echo "model: $model_arg (alias $alias_arg)"
-echo "flags: ctx=$ctx_arg fit=$fit_arg fitt=$fitt_arg ncmoe=$ncmoe_arg reasoning_budget=$reasoning_budget_arg checkpoint_every=$checkpoint_every_arg ctx_checkpoints=$ctx_checkpoints_arg"
+echo "flags: ctx=$ctx_arg fit=$fit_arg fitt=$fitt_arg ncmoe=$ncmoe_arg kv_unified=$kv_unified_arg reasoning_budget=$reasoning_budget_arg checkpoint_every=$checkpoint_every_arg ctx_checkpoints=$ctx_checkpoints_arg"
 echo "sampling: temperature=$temperature_arg top_p=$top_p_arg top_k=$top_k_arg min_p=$min_p_arg"
 
 print_section "gpu"
 printf '%s\n' "$gpu_summary"
 
-print_section "log summary (last $TAIL_LINES lines)"
+if [[ -n "$SINCE_ARG" ]]; then
+  print_section "log summary (last $TAIL_LINES lines since $SINCE_ARG)"
+else
+  print_section "log summary (last $TAIL_LINES lines)"
+fi
 echo "requests_200=$request_ok_count bad=$bad_count truncated=$truncated_count budget_exhausted=$budget_exhausted_count"
-echo "checkpoints: restored=$checkpoint_restored_count created=$checkpoint_created_count periodic=$checkpoint_periodic_count erased=$checkpoint_erased_count checks=$checkpoint_check_count"
+echo "checkpoints: restored=$checkpoint_restored_count created=$checkpoint_created_count periodic=$checkpoint_periodic_count erased=$checkpoint_erased_count checks=$checkpoint_check_count forced_full_reprocess=$checkpoint_forced_full_count"
 echo "cache: evictions=$cache_evict_count saves_or_updates=$prompt_save_count"
 echo "speed: avg_prompt_eval_tps=$avg_prompt_tps avg_eval_tps=$avg_eval_tps"
 
@@ -211,7 +239,7 @@ print_section "latest signals"
 [[ -n "$last_total" ]] && echo "$last_total"
 
 notable="$(
-  grep -Ei 'error|failed|fatal|panic|abort|out of memory|oom|cuda|bad_alloc|truncated = [1-9]|budget exhausted|cache size limit reached|erased invalidated context checkpoint|prompt cache update took' <<< "$logs" \
+  grep -Ei 'error|failed|fatal|panic|abort|out of memory|oom|cuda[^[:space:]]*.*(error|failed)|bad_alloc|truncated = [1-9]|budget exhausted|cache size limit reached|forcing full prompt re-processing|erased invalidated context checkpoint|prompt cache update took' <<< "$logs" \
     | tail -n 12 \
     || true
 )"

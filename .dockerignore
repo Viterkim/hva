@@ -1,9 +1,8 @@
-models/*
 .hva-state/
-benchmarking/results/
+models/
 config/hva-conf.json
 config/hva-secrets.json
+.git/
 .pi/
 pi/extensions/node_modules/
-.tmp-pi-smoke/
 .tmp-*
