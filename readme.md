@@ -1,7 +1,7 @@
-# Hva'? (hva) - Local Pi + llama.cpp Setup
+# Hva'? (hva) - Local LLM Vibe Coding Setup - Using 'Pi Coding Agent' + 'llama.cpp'
 
-- Local llama.cpp server
-- Pi coding agent in dev container
+- Local llama.cpp server (runs the LLM) [Github Link](https://github.com/ggml-org/llama.cpp)
+- Pi coding agent in dev container (yolo mode in a container with no git) [Github Link](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
 
 ## Quick start
 
@@ -9,7 +9,17 @@
 2. Download a `.gguf` model and put it in `models/`
 3. Run `hva`
 
-### Shell completion
+`config/hva-conf.json` is created automatically on first run.
+
+### Recommended models (Entire model does not have to be in VRAM)
+
+- [i1-IQ3_S download (15.4 Gb)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-IQ3_S.gguf)
+- [i1-Q4_K_M download (21.3 Gb)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q4_K_M.gguf)
+- [i1-Q5_K_M download (24.8 Gb)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q5_K_M.gguf)
+
+- The model page: [Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF)
+
+## Shell Completion
 
 **bash** — add to `~/.bashrc`:
 
@@ -22,14 +32,6 @@ source /path/to/hva/completions/hva.bash
 ```fish
 ln -s /path/to/hva/completions/hva.fish ~/.config/fish/completions/hva.fish
 ```
-
-`config/hva-conf.json` is created automatically on first run.
-
-### Recommended model
-
-- [Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF)
-- [Q4 download](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q4_K_M.gguf)
-- [Q5 download](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-Abliterix-EGA-abliterated.i1-Q5_K_M.gguf)
 
 ## Commands
 
@@ -71,6 +73,7 @@ Full config reference and one-shot env overrides: [docs/docker.md](docs/docker.m
 ## More info
 
 - [Caveats](caveats.md)
-- [Pi docs](https://pi.dev/)
-- [Docker setup](docs/docker.md)
-- [Local host setup](docs/local.md)
+- [Pi Docs](https://pi.dev/)
+- [Pi Packages](https://pi.dev/packages)
+- [Docker Setup](docs/docker.md)
+- [Local Host Setup](docs/local.md)

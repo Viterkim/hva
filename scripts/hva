@@ -159,29 +159,27 @@ if (( USE_LOCAL_PI == 1 )); then
   esac
 fi
 
-# shellcheck disable=SC1091
-source "$SCRIPT_DIR/../internals/docker.sh"
-
-if [[ "$MODE" == "stop" ]]; then
-  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
-  "$HVA_ROOT/internals/run-hva-searxng.sh" stop
-  "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
-  exit 0
-fi
-
-if [[ "$MODE" == "start-searxng" ]]; then
-  exec "$HVA_ROOT/internals/run-hva-searxng.sh" start
-fi
-
-if [[ "$MODE" == "stop-searxng" ]]; then
-  exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
-fi
-
 if [[ "$MODE" == "reset-pi-cache" ]]; then
   rm -rf "$HVA_ROOT/.hva-state/pi-home"
   echo "pi cache cleared — fresh config will be written on next: hva"
   exit 0
 fi
+
+case "$MODE" in
+  stop)
+    source "$SCRIPT_DIR/../internals/docker.sh"
+    "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
+    "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+    "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
+    exit 0
+    ;;
+  start-searxng)
+    exec "$HVA_ROOT/internals/run-hva-searxng.sh" start
+    ;;
+  stop-searxng)
+    exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+    ;;
+esac
 
 DEV_IMAGE="hva-safeprison"
 DEV_USER="dev"
@@ -280,8 +278,10 @@ print_loop_status() {
     fi
     echo "workspace: $WORKSPACE"
     echo "task_file: $LOOP_TASK_FILE"
-    [[ -f "$loop_log" ]] && echo "last_log: $loop_log"
-    return
+    if [[ -f "$loop_log" ]]; then
+      echo "last_log: $loop_log"
+    fi
+    return 0
   fi
 
   local _read_field
@@ -357,6 +357,24 @@ case "$MODE" in
     ;;
 esac
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../internals/docker.sh"
+
+if [[ "$MODE" == "stop" ]]; then
+  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
+  "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+  "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
+  exit 0
+fi
+
+if [[ "$MODE" == "start-searxng" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-searxng.sh" start
+fi
+
+if [[ "$MODE" == "stop-searxng" ]]; then
+  exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
+fi
+
 if [[ ! -f "${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}" ]]; then
   echo "HVA config not found — creating from sample..."
   "$HVA_ROOT/internals/sync-config.sh"
@@ -422,7 +440,17 @@ cleanup() {
     rm -f "$PROMPT_HOST_FILE"
   fi
 
+  for lens_link in "${PI_LENS_LOCAL_SYMLINKS[@]:-}"; do
+    if [[ -L "$lens_link" ]]; then
+      rm -f "$lens_link"
+    fi
+  done
+
   rm -f "$WORKSPACE_STATE_PLACEHOLDER_MARKER"
+
+  if declare -F remove_pi_lens_host_artifacts >/dev/null 2>&1; then
+    remove_pi_lens_host_artifacts
+  fi
 }
 
 trap cleanup EXIT
@@ -509,7 +537,10 @@ prepare_prompt_mode() {
           echo "prompt file does not exist: $PROMPT_FILE" >&2
           exit 1
         fi
-        PROMPT_HOST_FILE="$(realpath "$PROMPT_FILE")"
+        mkdir -p "$WORKSPACE_STATE_ROOT"
+        PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
+        PROMPT_FILE_TEMP=1
+        cp "$(realpath "$PROMPT_FILE")" "$PROMPT_HOST_FILE"
       else
         write_prompt_text_file "$PROMPT_TEXT"
       fi
@@ -623,10 +654,13 @@ dev_container_is_reusable() {
     return 1
   fi
 
-  # Verify the extension bind-mount is still writable — a cache nuke can leave
-  # the container holding an nlink=0 (orphaned) inode that silently rejects writes.
+  # Verify writable bind-mounts are still usable. A state/cache nuke can leave
+  # the container holding nlink=0 (orphaned) inodes that reject new writes.
   if ! "${DOCKER[@]}" exec "$dev_name" bash -c \
-       'touch /hva/pi/extensions/.reuse-check 2>/dev/null && rm -f /hva/pi/extensions/.reuse-check' \
+       'touch /hva/pi/extensions/.reuse-check 2>/dev/null &&
+        rm -f /hva/pi/extensions/.reuse-check &&
+        mkdir -p /hva-state/.reuse-check 2>/dev/null &&
+        rmdir /hva-state/.reuse-check' \
        2>/dev/null; then
     return 1
   fi
@@ -685,10 +719,55 @@ ensure_searxng_server() {
   "$HVA_ROOT/internals/run-hva-searxng.sh" start >/dev/null
 }
 
+declare -A _pi_lens_local_roots_seen=()
+PI_LENS_LOCAL_SYMLINKS=()
+
+add_local_pi_lens_symlink() {
+  local root="$1"
+  local rel_path state_path link_path
+
+  root="$(realpath "$root")"
+  if [[ -n "${_pi_lens_local_roots_seen[$root]+x}" ]]; then
+    return
+  fi
+  _pi_lens_local_roots_seen["$root"]=1
+
+  if [[ "$root" == "$WORKSPACE" ]]; then
+    state_path="$WORKSPACE_STATE_ROOT/pi-lens"
+  else
+    rel_path="${root#"$WORKSPACE"/}"
+    state_path="$WORKSPACE_STATE_ROOT/pi-lens-subs/$rel_path"
+  fi
+
+  link_path="$root/.pi-lens"
+  mkdir -p "$state_path"
+
+  if [[ -e "$link_path" || -L "$link_path" ]]; then
+    return
+  fi
+
+  ln -s "$state_path" "$link_path"
+  PI_LENS_LOCAL_SYMLINKS+=("$link_path")
+}
+
+init_local_pi_lens_symlinks() {
+  add_local_pi_lens_symlink "$WORKSPACE"
+
+  while IFS= read -r -d '' manifest_path; do
+    add_local_pi_lens_symlink "$(dirname "$manifest_path")"
+  done < <(
+    find "$WORKSPACE" \
+      \( -name .git -o -name node_modules -o -name target -o -name .hva-state \) -prune -o \
+      \( -name package.json -o -name Cargo.toml -o -name pyproject.toml -o -name go.mod -o -name Gemfile -o -name composer.json -o -name pom.xml -o -name build.gradle -o -name build.gradle.kts \) \
+      -print0 2>/dev/null
+  )
+}
+
 prepare_local_pi_env() {
   local pi_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 
   "$HVA_ROOT/internals/overwrite-local-confs.sh" >/dev/null
+  init_local_pi_lens_symlinks
 
   export HVA_PI_EXTENSIONS_DIR="$HVA_ROOT/pi/extensions"
   export HVA_PI_SKILLS_DIR="$HVA_ROOT/pi/skills"
@@ -802,7 +881,9 @@ add_pi_lens_volume_mount() {
     fi
     mkdir -p "$state_path"
     PI_LENS_VOLUME_MOUNTS+=("$state_path:$container_path")
-    PI_LENS_WORKSPACE_DIRS+=("$root/.pi-lens")
+    if [[ ! -e "$root/.pi-lens" ]]; then
+      PI_LENS_WORKSPACE_DIRS+=("$root/.pi-lens")
+    fi
   fi
 }
 
@@ -874,12 +955,14 @@ add_required_container_env() {
     exit 1
   fi
   start_docker_args+=(-e "${env_name}=${!env_name}")
+  exec_args+=(-e "${env_name}=${!env_name}")
 }
 
 add_optional_container_env() {
   local env_name="$1"
   if [[ -n "${!env_name-}" ]]; then
     start_docker_args+=(-e "${env_name}=${!env_name}")
+    exec_args+=(-e "${env_name}=${!env_name}")
   fi
 }
 
@@ -998,6 +1081,7 @@ if [[ "$MODE" != "prompt" ]]; then
 fi
 
 if ! dev_container_is_reusable; then
+  "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
   ensure_dev_image
   ensure_dev_container
 fi
@@ -1007,7 +1091,7 @@ remove_pi_lens_host_artifacts
 if [[ "$MODE" == "loop" ]]; then
   loop_log="$LOOP_STATE_DIR/loop.log"
   mkdir -p "$LOOP_STATE_DIR"
-  rm -f "$LOOP_STATE_DIR/status" "$loop_log"
+  rm -f "$LOOP_STATE_DIR/status" "$LOOP_STATE_DIR/stop" "$loop_log"
 
   # strip tty/stdin flags — loop runs detached
   loop_exec_args=()
@@ -1019,7 +1103,7 @@ if [[ "$MODE" == "loop" ]]; then
   # snapshot task counts before starting
   pending_start=0; done_start=0
   if [[ -f "$LOOP_TASK_FILE" ]]; then
-    pending_start="$(grep -Eic '^[[:space:]]*[-*+][[:space:]]+\[[[:space:]]*\][[:space:]]+' "$LOOP_TASK_FILE" 2>/dev/null || true)"
+    pending_start="$(awk '/^[[:space:]]*[-*+][[:space:]]+\[[[:space:]]*\][[:space:]]+/ && $0 !~ /[[:space:]]+BLOCKED:/ { count += 1 } END { print count + 0 }' "$LOOP_TASK_FILE" 2>/dev/null || true)"
     pending_start="${pending_start:-0}"
     done_start="$(grep -Eic '^[[:space:]]*[-*+][[:space:]]+\[[xX]\][[:space:]]+' "$LOOP_TASK_FILE" 2>/dev/null || true)"
     done_start="${done_start:-0}"
@@ -1104,4 +1188,3 @@ if [[ "$MODE" == "loop" ]]; then
 else
   "${DOCKER[@]}" exec "${exec_args[@]}" "$dev_name" "$@"
 fi
-

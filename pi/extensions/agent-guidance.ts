@@ -45,9 +45,6 @@ function buildInjection(): string {
       "- crates_search, crates_package_info, crates_dependencies, docs_rs_read: Rust/crates.io.",
     );
   }
-  toolLines.push(
-    "- lsp_navigation: definitions, references, hover, diagnostics, rename. Use before reading files.",
-  );
 
   const toolSection =
     toolLines.length > 0
@@ -56,17 +53,9 @@ function buildInjection(): string {
 
   return `
 RESPONSE STYLE (mandatory):
-Caveman compression. One thought per sentence. 2-5 words per sentence max. No filler phrases. No tables. No "Would you like...". No "Here is...". No "Let me...". No "I'll...". Act, report result. Done.
+Caveman compression. One thought per sentence. 2-5 words per sentence max. No filler phrases. No tables. No "Would you like...". No "Here is...". No "Let me...". No "I'll...". No "Wait..." loops. No "Actually..." loops. No process narration. Act, report result. Done.
 
-HVA context:
-- Project root is /workspace inside the container.
-- User requests for README, readme, TODO, todos, tasks, docs, or "the project" mean workspace files under /workspace unless the user explicitly says Pi/HVA docs.
-- Do not read the Pi package README for project tasks. Pi docs are only for Pi SDK/extension/theme/skill questions.
-- For ambiguous project docs, locate workspace files first with ripgrep_search or bash find, then read the /workspace path.
-- Enabled MCP groups: ${mcp.length > 0 ? mcp.join(", ") : "none"}.
-- One miss proves nothing. Try another query.
-- For lsp_navigation, operation must be a bare enum string like hover or workspaceDiagnostics. Never include extra quotes inside the string.
-- Prefer tool call over claiming tool is unavailable.${toolSection}
+Enabled MCP groups: ${mcp.length > 0 ? mcp.join(", ") : "none"}.${toolSection}
 `;
 }
 

@@ -94,8 +94,9 @@ After `hva --llama-cpp-update`, restart llama the same way so the new image is u
 - Pi extension dependencies install into HVA `.hva-state/`, so normal Docker mode does not need host Node
 - `HVA_MCP_*` and `SEARXNG_URL` are passed into the container explicitly; missing passthrough fails fast
 - Pi resource auto-discovery is disabled in Docker mode; HVA extensions and `hva-runtime` are loaded explicitly
-- If Docker bridge networking is broken on the host, HVA falls back to host networking and caches that choice in `.hva-state/docker-network-mode`
+- If Docker bridge networking is broken on the host, HVA falls back to host networking and caches the last working mode in `.hva-state/docker-network-mode`
 - If `searxng` is enabled in `HVA_MCP_ENABLED`, HVA starts the helper automatically before Pi opens
+- Visible Pi thinking is post-processed into a terse telegraph style before UI render/session persistence; this changes display/context carryover, not model-side reasoning token spend
 
 Security-sensitive mount behavior is documented in `caveats.md`.
 

@@ -16,6 +16,19 @@ if [[ "$TASK_FILE_PROMPT_PATH" == /workspace/* ]]; then
   TASK_FILE_PROMPT_PATH="${TASK_FILE_PROMPT_PATH#/workspace/}"
 fi
 
+if [[ "${HVA_LOOP_NEW_SESSION:-0}" == "1" ]]; then
+  rm -f "$SESSION_STATE_FILE"
+  case "$SESSION_DIR" in
+    /hva-state/pi-loop-sessions|/hva-state/*/pi-loop-sessions)
+      rm -rf "$SESSION_DIR"
+      ;;
+    *)
+      echo "refusing to remove unexpected loop session dir: $SESSION_DIR" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 mkdir -p "$STATE_DIR" "$SESSION_DIR"
 
 if [[ ! -f "$TASK_FILE" ]]; then
@@ -55,7 +68,7 @@ read_front_matter_value() {
     trimmed="$(trim "$line")"
     [[ -z "$trimmed" ]] && continue
 
-    if [[ "$trimmed" =~ ^${key}[[:space:]]*:[[:space:]]*(.*)$ ]]; then
+    if [[ "$trimmed" =~ ^${key//./\\.}[[:space:]]*:[[:space:]]*(.*)$ ]]; then
       value="$(trim "${BASH_REMATCH[1]}")"
       printf '%s\n' "$value"
       return 0
@@ -244,9 +257,6 @@ current_session_file() {
   if [[ -f "$SESSION_STATE_FILE" ]]; then
     local session_file
     session_file="$(tr -d '\r' < "$SESSION_STATE_FILE")"
-    if [[ "$session_file" != /* ]]; then
-      session_file="/workspace/$session_file"
-    fi
     if [[ -f "$session_file" ]]; then
       printf '%s\n' "$session_file"
       return 0
@@ -257,10 +267,20 @@ current_session_file() {
 
 run_prompt() {
   local prompt="$1"
+  local pi_rc=0
+  local session_file=""
+  local -a run_args=(-p "$prompt")
 
-  hva_ensure_pi_extension_deps
-  HVA_PI_SESSION_DIR="$SESSION_DIR" hva_run_pi "" -p "$prompt"
-  HVA_PI_SESSION_DIR="$SESSION_DIR" HVA_PI_SESSION_STATE_FILE="$SESSION_STATE_FILE" /hva/internals/save-session.sh || true
+  if session_file="$(current_session_file)"; then
+    run_args=(--session "$session_file" "${run_args[@]}")
+  fi
+
+  hva_ensure_pi_extension_deps || return $?
+  HVA_PI_SESSION_DIR="$SESSION_DIR" hva_run_pi "" "${run_args[@]}" || pi_rc=$?
+  if (( pi_rc == 0 )); then
+    HVA_PI_SESSION_DIR="$SESSION_DIR" HVA_PI_SESSION_STATE_FILE="$SESSION_STATE_FILE" /hva/internals/save-session.sh || true
+  fi
+  return "$pi_rc"
 }
 
 build_normalize_prompt() {

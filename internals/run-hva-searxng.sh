@@ -4,8 +4,51 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
-# shellcheck disable=SC1091
-source "$SCRIPT_DIR/load-config.sh"
+usage() {
+  cat <<EOF
+Usage:
+  run-hva-searxng.sh [start|stop|status]
+EOF
+}
+
+ACTION="${1:-start}"
+
+case "$ACTION" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  start|stop|status)
+    ;;
+  *)
+    echo "unknown action: $ACTION" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
+load_config_or_service_defaults() {
+  local config_path="${HVA_CONFIG:-$SCRIPT_DIR/../config/hva-conf.json}"
+
+  if [[ -f "$config_path" ]]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/load-config.sh"
+    return
+  fi
+
+  case "$ACTION" in
+    stop|status)
+      SEARXNG_CONTAINER="${SEARXNG_CONTAINER:-hva-searxng}"
+      SEARXNG_HOST_PORT="${SEARXNG_HOST_PORT:-8888}"
+      ;;
+    *)
+      # shellcheck disable=SC1091
+      source "$SCRIPT_DIR/load-config.sh"
+      ;;
+  esac
+}
+
+load_config_or_service_defaults
 source "$SCRIPT_DIR/../docker/versions.env"
 source "$SCRIPT_DIR/docker.sh"
 source "$SCRIPT_DIR/docker-network.sh"
@@ -42,8 +85,8 @@ create_container() {
   fi
 
   docker_args+=(
-    --tmpfs /etc/searxng:rw,nosuid,nodev,size=1m
-    --tmpfs /var/cache/searxng:rw,nosuid,nodev,size=64m
+    --tmpfs "/etc/searxng:rw,nosuid,nodev,size=1m"
+    --tmpfs "/var/cache/searxng:rw,nosuid,nodev,size=64m"
     -v "$SETTINGS_FILE:/hva-searxng/settings.yml:ro"
     -v "$LIMITER_FILE:/hva-searxng/limiter.toml:ro"
     --entrypoint sh
@@ -55,8 +98,6 @@ cp /hva-searxng/limiter.toml /etc/searxng/limiter.toml
 exec /usr/local/searxng/entrypoint.sh
 ' >/dev/null
 }
-
-ACTION="${1:-start}"
 
 case "$ACTION" in
   start)

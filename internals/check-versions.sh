@@ -5,6 +5,29 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 VERSIONS_FILE="${SCRIPT_DIR}/../docker/versions.env"
 
+usage() {
+    cat <<EOF
+Usage:
+  check-versions.sh
+
+Check pinned runtime/tool/image versions against latest upstream releases.
+EOF
+}
+
+case "${1:-}" in
+    "")
+        ;;
+    -h|--help|help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "unknown argument: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
 # shellcheck source=../docker/versions.env
 source "$VERSIONS_FILE"
 

@@ -37,7 +37,8 @@ hva_pi_base_args() {
     --extension "$ext_dir/mcp-tools.ts" \
     --skill "$skills_dir/hva-runtime" \
     --extension "$ext_dir/node_modules/pi-lens/index.ts" \
-    --skill "$ext_dir/node_modules/pi-lens/skills"
+    --skill "$ext_dir/node_modules/pi-lens/skills" \
+    --no-read-guard
 
   if [[ "$mode" == "print" ]]; then
     printf '%s\0' \
@@ -68,6 +69,7 @@ hva_run_pi() {
     args+=(--session "$session_file")
   fi
 
+  mkdir -p "$session_dir"
   args+=(--session-dir "$session_dir")
   PI_LENS_STARTUP_MODE="$pi_lens_startup_mode" pi "${args[@]}" "$@"
 }

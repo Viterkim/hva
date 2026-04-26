@@ -4,8 +4,32 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
-source "$SCRIPT_DIR/docker.sh"
 VERSIONS_FILE="${VERSIONS_FILE:-$SCRIPT_DIR/../docker/versions.env}"
+
+usage() {
+  cat <<EOF
+Usage:
+  llama-cpp-update.sh
+
+Update pinned llama.cpp backend image digests, then pull the updated images.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "unknown argument: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
+source "$SCRIPT_DIR/docker.sh"
 
 # shellcheck source=../docker/versions.env
 source "$VERSIONS_FILE"

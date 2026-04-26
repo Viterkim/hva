@@ -57,6 +57,15 @@ done
 # shellcheck disable=SC1091
 source "$HVA_ROOT/internals/docker.sh"
 
+config_path="${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}"
+if [[ -f "$config_path" ]]; then
+  # shellcheck disable=SC1091
+  source "$HVA_ROOT/internals/load-config.sh"
+fi
+
+LLAMA_CONTAINER="${LLAMA_CONTAINER:-hva-llama-server}"
+SEARXNG_CONTAINER="${SEARXNG_CONTAINER:-hva-searxng}"
+
 echo "docker storage:"
 "${DOCKER[@]}" system df
 
@@ -82,7 +91,7 @@ fi
 
 echo
 echo "removing stopped HVA containers..."
-for name in hva-dev "${LLAMA_CONTAINER:-hva-llama-server}" "${SEARXNG_CONTAINER:-hva-searxng}"; do
+for name in hva-dev "$LLAMA_CONTAINER" "$SEARXNG_CONTAINER"; do
   if "${DOCKER[@]}" ps -aq --filter "name=^/${name}$" --filter status=exited | grep -q .; then
     "${DOCKER[@]}" rm "$name" >/dev/null 2>&1 || true
     echo "removed container: $name"

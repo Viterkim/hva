@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 HVA_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 STATE_ROOT="$HVA_ROOT/.hva-state"
-PI_CONFIG_ROOT="$STATE_ROOT/pi-agent"
+PI_CONFIG_ROOT="$STATE_ROOT/pi-home/agent"
 
 echo "=== hva update ==="
 echo ""

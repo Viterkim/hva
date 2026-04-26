@@ -4,12 +4,12 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
-# shellcheck disable=SC1091
-source "$SCRIPT_DIR/load-config.sh"
-
-source "$SCRIPT_DIR/docker.sh"
-source "$SCRIPT_DIR/docker-network.sh"
-source "$SCRIPT_DIR/../docker/versions.env"
+usage() {
+  cat <<EOF
+Usage:
+  run-hva-llama-cpp.sh [run|daemon|restart|stop|status|logs] [--model FILE] [--ncmoe N] [-- ...]
+EOF
+}
 
 ACTION="${1:-run}"
 case "$ACTION" in
@@ -18,8 +18,68 @@ case "$ACTION" in
       shift
     fi
     ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
   *)
-    ACTION=run
+    echo "unknown action: $ACTION" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
+load_config_or_service_defaults() {
+  local config_path="${HVA_CONFIG:-$SCRIPT_DIR/../config/hva-conf.json}"
+
+  if [[ -f "$config_path" ]]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/load-config.sh"
+    return
+  fi
+
+  case "$ACTION" in
+    stop|status|logs)
+      LLAMA_CONTAINER="${LLAMA_CONTAINER:-hva-llama-server}"
+      ;;
+    *)
+      # shellcheck disable=SC1091
+      source "$SCRIPT_DIR/load-config.sh"
+      ;;
+  esac
+}
+
+load_config_or_service_defaults
+
+source "$SCRIPT_DIR/docker.sh"
+source "$SCRIPT_DIR/docker-network.sh"
+source "$SCRIPT_DIR/../docker/versions.env"
+
+case "$ACTION" in
+  stop)
+    if [[ -n "$("${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$")" ]]; then
+      echo "stopping llama server: $LLAMA_CONTAINER"
+      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
+    else
+      echo "llama server is not running: $LLAMA_CONTAINER"
+    fi
+    existing_id="$("${DOCKER[@]}" ps -aq --filter "name=^/$LLAMA_CONTAINER$")"
+    if [[ -n "$existing_id" ]]; then
+      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
+    fi
+    exit 0
+    ;;
+  status)
+    if [[ -n "$("${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$")" ]]; then
+      "${DOCKER[@]}" ps --filter "name=^/$LLAMA_CONTAINER$"
+    else
+      echo "llama server is not running: $LLAMA_CONTAINER"
+    fi
+    exit 0
+    ;;
+  logs)
+    "${DOCKER[@]}" logs "$LLAMA_CONTAINER"
+    exit 0
     ;;
 esac
 
@@ -105,6 +165,14 @@ detect_gpu_vendor() {
     esac
   done
   printf '\n'
+}
+
+host_platform_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf 'amd64\n' ;;
+    aarch64|arm64) printf 'arm64\n' ;;
+    *) uname -m ;;
+  esac
 }
 
 container_id() {
@@ -194,6 +262,7 @@ docker_args=(
 )
 
 gpu_vendor="$(detect_gpu_vendor)"
+host_arch="$(host_platform_arch)"
 
 if [[ -z "$LLAMA_IMAGE" ]]; then
   case "$gpu_vendor" in
@@ -202,6 +271,12 @@ if [[ -z "$LLAMA_IMAGE" ]]; then
     intel)    LLAMA_IMAGE="$HVA_V_LLAMA_CPP_IMAGE_VULKAN" ;;
     *)        LLAMA_IMAGE="$HVA_V_LLAMA_CPP_IMAGE_CPU" ;;
   esac
+fi
+
+if [[ "$gpu_vendor" == "amd" && "$host_arch" != "amd64" ]]; then
+  echo "ROCm llama.cpp image is only available for linux/amd64; host arch is $host_arch." >&2
+  echo "Set LLAMA_GPU_VENDOR=cpu/none, use a Vulkan-capable path, or run on amd64." >&2
+  exit 1
 fi
 
 case "$gpu_vendor" in

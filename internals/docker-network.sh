@@ -57,7 +57,7 @@ hva_detect_docker_network_mode() {
   cached="$(hva_read_docker_network_mode || true)"
 
   if [[ -n "$cached" ]]; then
-    if [[ "$cached" == "host" || "$cached" == "$requested" ]]; then
+    if [[ "$cached" == "$requested" ]]; then
       hva_ensure_docker_network_exists "$cached"
       printf '%s\n' "$cached"
       return 0

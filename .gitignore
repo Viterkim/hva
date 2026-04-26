@@ -4,6 +4,10 @@ benchmarking/results/
 config/hva-conf.json
 config/hva-secrets.json
 .pi/
+.pi-lens
+.pi-lens/
+**/.pi-lens
+**/.pi-lens/
 pi/extensions/node_modules/
 .tmp-pi-smoke/
 .tmp-*

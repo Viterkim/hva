@@ -59,6 +59,7 @@ case "$MODE" in
     ;;
   all)
     tmp_index="$(mktemp "${TMPDIR:-/tmp}/hva-index.XXXXXX")"
+    rm -f "$tmp_index"
     trap 'rm -f "$tmp_index"' EXIT
     (
       export GIT_INDEX_FILE="$tmp_index"

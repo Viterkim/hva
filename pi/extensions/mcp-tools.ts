@@ -126,9 +126,7 @@ export async function githubReadFile(
   ref: string | undefined,
 ) {
   const headers = githubHeaders();
-  const url = new URL(
-    `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
-  );
+  const url = githubContentsUrl(owner, repo, path);
   if (ref) {
     url.searchParams.set("ref", ref);
   }
@@ -159,10 +157,7 @@ export async function githubListDirectory(
   ref: string | undefined,
 ) {
   const headers = githubHeaders();
-  const normalizedPath = path.replace(/^\/+/, "");
-  const url = new URL(
-    `https://api.github.com/repos/${owner}/${repo}/contents/${normalizedPath}`,
-  );
+  const url = githubContentsUrl(owner, repo, path);
   if (ref) {
     url.searchParams.set("ref", ref);
   }
@@ -236,6 +231,17 @@ export async function docsRsRead(
     url: url.toString(),
     text: stripHtml(body),
   };
+}
+
+function githubContentsUrl(owner: string, repo: string, path: string) {
+  const normalizedPath = path.replace(/^\/+/, "");
+  const encodedPath =
+    normalizedPath === ""
+      ? ""
+      : normalizedPath.split("/").map(encodeURIComponent).join("/");
+  return new URL(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`,
+  );
 }
 
 export default function (pi: ExtensionAPI) {
