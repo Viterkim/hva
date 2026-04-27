@@ -23,6 +23,7 @@ ENV_CONFIG_KEYS=(
   HVA_MCP_DISABLED
   SEARXNG_URL
   HVA_LOAD_SECRETS
+  HVA_MOUNT_GIT
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
@@ -44,6 +45,7 @@ ENV_REQUIRED_NONEMPTY_KEYS=(
   LLAMA_REASONING_BUDGET
   LLAMA_NCMOE
   HVA_LOAD_SECRETS
+  HVA_MOUNT_GIT
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
@@ -52,6 +54,7 @@ ENV_REQUIRED_NONEMPTY_KEYS=(
 
 ENV_BOOLEAN_01_KEYS=(
   HVA_LOAD_SECRETS
+  HVA_MOUNT_GIT
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
@@ -109,7 +112,7 @@ env_require_nonempty() {
   local missing=0
 
   for var in "$@"; do
-    if [[ -z "${!var:-}" ]]; then
+    if [[ -n "${!var+x}" && -z "${!var:-}" ]]; then
       echo "$var is not set" >&2
       missing=1
     fi

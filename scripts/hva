@@ -10,8 +10,9 @@ usage() {
 Usage:
   hva                          start/reuse llama, enter workspace, open Pi
   hva --local                  start/reuse llama, then open host Pi
-  hva --bash                   enter workspace shell; does not wait for llama
+  hva --bash                   shell into running dev container, or start one if needed
   hva --new                    start a fresh Pi session (clears resume state)
+  hva --new-hard               start a fresh Pi session and recreate the dev container
   hva --msg TEXT               one-shot Pi message
   hva --prompt TEXT            one-shot Pi prompt (alias for --msg)
   hva --prompt-file FILE       one-shot Pi prompt from file
@@ -59,6 +60,11 @@ while [[ $# -gt 0 ]]; do
   case "${1:-}" in
     --new)
       HVA_NEW_SESSION=1
+      shift
+      ;;
+    --new-hard)
+      HVA_NEW_SESSION=1
+      HVA_NEW_HARD_SESSION=1
       shift
       ;;
     --local|--host-pi)
@@ -518,17 +524,8 @@ prepare_diff_review_prompt() {
   PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
   PROMPT_FILE_TEMP=1
   {
-    cat <<EOF
-Read entire codebase first.
-Then review this diff.
-
-Focus on bugs, broken logic, inconsistencies, missing wiring.
-Ignore style.
-
-Review target: $label
-
-Diff:
-EOF
+    cat "$HVA_ROOT/hva-runtime/diff-review.md"
+    printf '\n\nReview target: %s\n\nDiff:\n' "$label"
     printf '```diff\n'
     printf '%s\n' "$diff_content"
     printf '```\n'
@@ -681,8 +678,20 @@ dev_container_is_reusable() {
   [[ "$cws" == "$WORKSPACE" ]]
 }
 
+running_dev_container_workspace() {
+  if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
+    return 1
+  fi
+
+  "${DOCKER[@]}" inspect "$dev_name" --format '{{ index .Config.Labels "dev.hva.workspace" }}' 2>/dev/null
+}
+
 ensure_dev_container() {
   local cws cimg img
+  if [[ "${HVA_NEW_HARD_SESSION:-0}" == "1" ]] && "${DOCKER[@]}" inspect "$dev_name" &>/dev/null; then
+    echo "recreating dev container for --new-hard" >&2
+    "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
+  fi
   if "${DOCKER[@]}" inspect "$dev_name" &>/dev/null; then
     cws="$("${DOCKER[@]}" inspect "$dev_name" --format '{{ index .Config.Labels "dev.hva.workspace" }}')"
     cimg="$("${DOCKER[@]}" inspect "$dev_name" --format '{{.Image}}')"
@@ -718,7 +727,9 @@ print_services() {
 
 print_runtime_status() {
   local session_label="auto-continue"
-  if [[ "$PI_SESSION_MODE" == "new" ]]; then
+  if [[ "${HVA_NEW_HARD_SESSION:-0}" == "1" ]]; then
+    session_label="new-hard"
+  elif [[ "$PI_SESSION_MODE" == "new" ]]; then
     session_label="new"
   fi
   echo "runtime: docker network: $HVA_DOCKER_NETWORK_MODE, session: $session_label"
@@ -796,7 +807,8 @@ prepare_local_pi_env() {
   init_local_pi_lens_symlinks
 
   export HVA_PI_EXTENSIONS_DIR="$HVA_ROOT/pi/extensions"
-  export HVA_PI_SKILLS_DIR="$HVA_ROOT/pi/skills"
+  export HVA_PI_SKILLS_DIR="$HVA_ROOT/skills"
+  export HVA_PI_HVA_SKILLS_DIR="$HVA_ROOT/skills-hva"
   export HVA_PI_SESSION_DIR="$pi_dir/sessions"
 }
 
@@ -871,6 +883,9 @@ prepare_pi_config() {
 
 prepare_pi_config
 dev_name="hva-dev"
+bash_reuse_running_container=0
+bash_running_workspace=""
+container_workdir="/workspace"
 
 stdio_args=()
 if [[ "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
@@ -879,12 +894,6 @@ if [[ "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
     stdio_args=(-it)
   fi
 fi
-
-exec_args=(
-  "${stdio_args[@]}"
-  -w /workspace
-)
-
 
 declare -A _pi_lens_roots_seen=()
 PI_LENS_VOLUME_MOUNTS=()
@@ -939,6 +948,7 @@ done < <(
 start_docker_args=(
   --init
   -e PI_SKIP_VERSION_CHECK=1
+  -e "HVA_HOST_WORKSPACE_PATH=$WORKSPACE"
   -v "$WORKSPACE:/workspace"
   -v "$WORKSPACE_STATE_ROOT:/hva-state"
   -v "$CARGO_REGISTRY_CACHE:/home/$DEV_USER/.cargo/registry"
@@ -947,11 +957,14 @@ start_docker_args=(
   -v "$NPM_CACHE:/home/$DEV_USER/.npm"
   -v "$PI_HOME_ROOT:/home/$DEV_USER/.pi"
   -v "$HVA_ROOT/pi/extensions:/hva/pi/extensions-src:ro"
-  -v "$HVA_ROOT/pi/skills:/hva/pi/skills:ro"
+  -v "$HVA_ROOT/hva-runtime:/hva/hva-runtime:ro"
+  -v "$HVA_ROOT/skills:/hva/skills:ro"
+  -v "$HVA_ROOT/skills-hva:/hva/skills-hva:ro"
   -v "$HVA_ROOT/docs:/hva/docs:ro"
   -v "$PI_EXTENSION_NODE_MODULES:/hva/pi/extensions"
   -v "$HVA_ROOT/docker/versions.env:/hva/docker/versions.env:ro"
   -v "$HVA_ROOT/internals/docker.sh:/hva/internals/docker.sh:ro"
+  -v "$HVA_ROOT/internals/git-diff.sh:/hva/internals/git-diff.sh:ro"
   -v "$HVA_ROOT/internals/pi-loop.sh:/hva/internals/pi-loop.sh:ro"
   -v "$HVA_ROOT/internals/pi-runtime.sh:/hva/internals/pi-runtime.sh:ro"
   -v "$HVA_ROOT/internals/save-session.sh:/hva/internals/save-session.sh:ro"
@@ -1000,7 +1013,9 @@ add_optional_container_env() {
 for env_name in \
   HVA_MCP_ENABLED \
   HVA_MCP_DISABLED \
-  SEARXNG_URL; do
+  SEARXNG_URL \
+  HVA_MOUNT_GIT \
+  LLAMA_CONTEXT_SIZE; do
   add_required_container_env "$env_name"
 done
 
@@ -1042,19 +1057,21 @@ if [[ "${HVA_MOUNT_SSH:-0}" == "1" && -d "$HOME/.ssh" ]]; then
   start_docker_args+=(-v "$HOME/.ssh:/home/$DEV_USER/.ssh:ro")
 fi
 
-while IFS= read -r -d '' git_path; do
-  rel_path="${git_path#"$WORKSPACE"/}"
-  if [[ "$git_path" == "$WORKSPACE" ]]; then
-    rel_path="."
-  fi
-  dest="/workspace/$rel_path"
+if [[ "${HVA_MOUNT_GIT:-0}" != "1" ]]; then
+  while IFS= read -r -d '' git_path; do
+    rel_path="${git_path#"$WORKSPACE"/}"
+    if [[ "$git_path" == "$WORKSPACE" ]]; then
+      rel_path="."
+    fi
+    dest="/workspace/$rel_path"
 
-  if [[ -d "$git_path" ]]; then
-    start_docker_args+=(--tmpfs "$dest:rw,noexec,nosuid,nodev,size=64k")
-  elif [[ -f "$git_path" ]]; then
-    start_docker_args+=(--mount "type=bind,source=$GIT_FILE_MASK,target=$dest,readonly")
-  fi
-done < <(find "$WORKSPACE" -name .git -prune -print0 2>/dev/null)
+    if [[ -d "$git_path" ]]; then
+      start_docker_args+=(--tmpfs "$dest:rw,noexec,nosuid,nodev,size=64k")
+    elif [[ -f "$git_path" ]]; then
+      start_docker_args+=(--mount "type=bind,source=$GIT_FILE_MASK,target=$dest,readonly")
+    fi
+  done < <(find "$WORKSPACE" -name .git -prune -print0 2>/dev/null)
+fi
 
 if [[ $# -eq 0 ]]; then
   if [[ "$MODE" == "loop" ]]; then
@@ -1111,10 +1128,34 @@ if [[ "$MODE" != "prompt" ]]; then
   fi
 fi
 
-if ! dev_container_is_reusable; then
-  "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
-  ensure_dev_image
-  ensure_dev_container
+if [[ "$MODE" == "bash" ]]; then
+  if bash_running_workspace="$(running_dev_container_workspace)"; then
+    bash_reuse_running_container=1
+    if [[ -n "$bash_running_workspace" ]]; then
+      if [[ "$WORKSPACE" == "$bash_running_workspace" ]]; then
+        container_workdir="/workspace"
+      elif [[ "$WORKSPACE" == "$bash_running_workspace"/* ]]; then
+        rel_bash_workdir="${WORKSPACE#"$bash_running_workspace"/}"
+        container_workdir="/workspace/$rel_bash_workdir"
+      else
+        echo "reusing running dev container workspace: $bash_running_workspace" >&2
+        echo "requested path is not mounted there, opening /workspace instead" >&2
+      fi
+    fi
+  fi
+fi
+
+exec_args=(
+  "${stdio_args[@]}"
+  -w "$container_workdir"
+)
+
+if (( bash_reuse_running_container == 0 )); then
+  if ! dev_container_is_reusable; then
+    "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
+    ensure_dev_image
+    ensure_dev_container
+  fi
 fi
 
 remove_pi_lens_host_artifacts

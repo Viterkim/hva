@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Use when writing or editing documentation, markdown files, READMEs, or any user-facing text.
+description: Use for docs and markdown.
 ---
 
 # Documentation Style

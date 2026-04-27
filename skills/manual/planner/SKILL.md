@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Break down a complex task into a tracked plan with persistent findings.
+description: Make a tracked plan.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,6 @@ Two files in the project root:
 
 ```markdown
 # Plan: task name
-
 - [ ] step one
 - [ ] step two
 - [x] done step

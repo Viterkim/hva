@@ -6,19 +6,19 @@
 
 TypeScript, hooked into `before_agent_start`. Runs every turn, no LLM involved.
 
-- `pi/extensions-src/agent-guidance.ts` (response style + MCP list)
+- `pi/extensions/agent-guidance.ts` + `hva-runtime/runtime.md` (response style + injected HVA runtime)
 
 ### Skills
 
 Pi injects a catalog at session start with just name + description (~50 tokens each). LLM reads the full `SKILL.md` via the `read` tool when the task matches.
 
-- `pi/skills/hva-runtime` (LLM reads it immediately, it's obviously inside HVA)
+- `skills/auto/documentation` and `skills/auto/review` (normal context-loaded skills)
 
 ### Manual skills
 
 Add `disable-model-invocation: true` to frontmatter. Hidden from the catalog, LLM never sees it. User loads it with `/skill:name`.
 
-- `pi/skills/hva-pr-review` (chunky checklist, only when reviewing an HVA PR)
+- `skills-hva/manual/hva-review` (chunky checklist, only when reviewing an HVA PR)
 
 20 skills loaded = ~1000 tokens for the catalog. Full skill body only read on demand.
 

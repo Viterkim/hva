@@ -7,10 +7,10 @@ See [skill-basics.md](skill-basics.md) for how the tiers work.
 
 ## Skills
 
-Create a directory under `pi/skills/`:
+Create a directory under `skills/`:
 
 ```
-pi/skills/my-skill/SKILL.md
+skills/auto/my-skill/SKILL.md
 ```
 
 ```markdown
@@ -32,19 +32,21 @@ disable-model-invocation: true
 ---
 ```
 
+HVA-specific skills live under `skills-hva/`.
+
 ## Extensions
 
 ```typescript
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     return { systemPrompt: event.systemPrompt + "\nExtra context." };
   });
-
   pi.registerCommand("my-command", {
     description: "Does something",
-    handler: async (args, ctx) => { ctx.ui.notify("hi", "info"); },
+    handler: async (args, ctx) => {
+      ctx.ui.notify("hi", "info");
+    },
   });
 }
 ```
@@ -55,4 +57,4 @@ Wire it up in `internals/pi-runtime.sh` in `hva_pi_base_args` and add the file t
 
 ## Example
 
-`pi/skills/hva-pr-review/SKILL.md` has `disable-model-invocation: true` so it's invisible during normal sessions. Type `/skill:hva-pr-review` when reviewing a PR to this repo.
+`skills-hva/manual/hva-review/SKILL.md` has `disable-model-invocation: true` so it's invisible during normal sessions. Type `/skill:hva-review` when reviewing a PR to this repo.

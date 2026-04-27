@@ -54,6 +54,7 @@ HVA_MCP_ENABLED
 HVA_MCP_DISABLED
 SEARXNG_URL
 HVA_LOAD_SECRETS
+HVA_MOUNT_GIT
 HVA_MOUNT_GITCONFIG
 HVA_MOUNT_NVIM
 HVA_MOUNT_SSH
@@ -93,7 +94,7 @@ After `hva --llama-cpp-update`, restart llama the same way so the new image is u
 - Pi sessions live under `.hva-state/workspaces/<workspace-hash>/pi-sessions/` and use Pi's built-in `--continue`
 - Pi extension dependencies install into HVA `.hva-state/`, so normal Docker mode does not need host Node
 - `HVA_MCP_*` and `SEARXNG_URL` are passed into the container explicitly. Missing passthrough fails fast
-- Pi resource auto-discovery is disabled in Docker mode. HVA extensions and `hva-runtime` are loaded explicitly
+- Pi resource auto-discovery is disabled in Docker mode. HVA extensions, root skills, and injected runtime guidance are loaded explicitly
 - When HVA can use a user-defined Docker network such as `LLAMA_NETWORK=hva-net`, the dev container talks to llama and SearXNG by container name on that shared network
 - If Docker bridge networking is broken on the host, HVA falls back to host networking and caches the last working mode in `.hva-state/docker-network-mode`
 - If `searxng` is enabled in `HVA_MCP_ENABLED`, HVA starts the helper automatically before Pi opens
@@ -110,6 +111,8 @@ config/hva-conf.json.sample
 config/hva-secrets.json.sample
 docker/versions.env
 pi/extensions/
+hva-runtime/
+skills/
 pi/render-models.sh
 pi/render-settings.sh
 pi/tasks-template.md
@@ -150,15 +153,14 @@ GPU detection:
 # NVIDIA
 nvidia-smi
 docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
-
 # AMD ROCm
 rocm-smi
-
 # Intel
 clinfo | grep -i intel
 ```
 
 `LLAMA_GPU_VENDOR` can be set explicitly to `nvidia`, `amd`, `intel`, `cpu`, or `none` to skip auto-detection.
+
 `LLAMA_IMAGE` overrides the auto-selected backend image.
 
 Port conflict:

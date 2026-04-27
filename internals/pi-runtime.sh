@@ -7,7 +7,7 @@ hva_ensure_pi_extension_deps() {
 
   mkdir -p /hva/pi/extensions
   rm -f /hva/pi/extensions/*.ts
-  for file in package.json package-lock.json tsconfig.json agent-guidance.ts common.ts mcp-tools.ts print-exit.ts patch-pi-lens.mjs; do
+  for file in package.json package-lock.json tsconfig.json agent-guidance.ts common.ts mcp-tools.ts print-exit.ts; do
     cp -f "/hva/pi/extensions-src/$file" "/hva/pi/extensions/$file"
   done
 
@@ -20,14 +20,13 @@ hva_ensure_pi_extension_deps() {
     cp -r /hva-ext-deps/node_modules /hva/pi/extensions/node_modules
     printf '%s\n' "$image_version" > "$stamp_file"
   fi
-
-  node /hva/pi/extensions/patch-pi-lens.mjs /hva/pi/extensions
 }
 
 hva_pi_base_args() {
   local mode="${1:-interactive}"
   local ext_dir="${HVA_PI_EXTENSIONS_DIR:-/hva/pi/extensions}"
-  local skills_dir="${HVA_PI_SKILLS_DIR:-/hva/pi/skills}"
+  local skills_dir="${HVA_PI_SKILLS_DIR:-/hva/skills}"
+  local hva_skills_dir="${HVA_PI_HVA_SKILLS_DIR:-/hva/skills-hva}"
 
   printf '%s\0' \
     --no-context-files \
@@ -36,6 +35,7 @@ hva_pi_base_args() {
     --extension "$ext_dir/agent-guidance.ts" \
     --extension "$ext_dir/mcp-tools.ts" \
     --skill "$skills_dir" \
+    --skill "$hva_skills_dir" \
     --extension "$ext_dir/node_modules/pi-lens/index.ts" \
     --skill "$ext_dir/node_modules/pi-lens/skills" \
     --no-read-guard

@@ -1,6 +1,6 @@
 ---
-name: shell-safety
-description: Use when writing or editing bash/shell scripts.
+name: bash-style
+description: Use for bash and shell.
 ---
 
 # Shell Safety

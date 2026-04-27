@@ -21,3 +21,7 @@ export function envEnabled(
 export function enabledMcp(name: string): boolean {
   return envEnabled(name, "HVA_MCP_ENABLED", "HVA_MCP_DISABLED");
 }
+
+export function envFlag(name: string): boolean {
+  return process.env[name] === "1";
+}

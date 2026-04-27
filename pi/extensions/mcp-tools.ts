@@ -266,9 +266,10 @@ export default function (pi: ExtensionAPI) {
       name: "ripgrep_search",
       label: "Ripgrep Search",
       description: "Search workspace files with ripgrep.",
-      promptSnippet: "Use ripgrep_search for fast broad workspace search.",
+      promptSnippet: "Use ripgrep_search first for workspace text search. Do not use bash grep.",
       promptGuidelines: [
-        "Use ripgrep_search before slower shell search for multi-file text lookup.",
+        "For text inside workspace files, use ripgrep_search before bash grep or find|grep.",
+        "Use ls or find instead when the task is about file names, file counts, or directory listing.",
         "If one query misses, try another pattern or glob before assuming absence.",
       ],
       parameters: Type.Object({

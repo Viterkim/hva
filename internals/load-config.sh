@@ -91,4 +91,4 @@ hva_normalize_github_tokens() {
 }
 
 # shellcheck disable=SC1091
-source "$HVA_ROOT/env/env-validate.sh"
+source "$HVA_ROOT/env-validate.sh"

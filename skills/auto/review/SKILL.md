@@ -1,6 +1,6 @@
 ---
 name: review
-description: Use when reviewing code, a diff, or a changeset.
+description: Use for code review.
 ---
 
 # Review

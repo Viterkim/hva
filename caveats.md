@@ -14,6 +14,7 @@
 
 ## SSH, gitconfig, Neovim mounts
 
+- `HVA_MOUNT_GIT=1` - leaves `.git` metadata visible inside the workspace mount. The agent can inspect repo status, history, and diffs from inside the container
 - `HVA_MOUNT_SSH=1` - mounts `~/.ssh` read-only. Agent can use host SSH keys and identities
 - `HVA_MOUNT_GITCONFIG=1` - mounts `~/.gitconfig` read-only. Commits will use your host identity
 - `HVA_MOUNT_NVIM=1` - mounts `~/.config/nvim` and `~/.local/share/nvim` read-only
