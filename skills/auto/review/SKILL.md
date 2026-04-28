@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Use for code review."
+description: "Code review guidelines. Use when asked to review, check, or audit code."
 ---
 
 # Review

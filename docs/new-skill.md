@@ -1,6 +1,6 @@
 # Adding a skill or extension
 
-See [skill-basics.md](skill-basics.md) for how the tiers work.
+See [skills-basics.md](skills-basics.md) for how skills actually work in Pi and HVA.
 
 - Skill: `SKILL.md` file. Listed in catalog, LLM reads it on demand or you load it with `/skill:name`
 - Extension: TypeScript. Hooks into Pi lifecycle, registers tools or commands.
@@ -37,6 +37,12 @@ Quote skill `description` values in frontmatter.
 This avoids YAML breaking when the text contains `:` or similar punctuation.
 
 HVA-specific skills live under `skills-hva/`.
+
+## Injection defaults
+
+- Prefer `HVA_SOFT_INJECT_SKILLS` if a skill needs prompt injection
+- Use `HVA_HARD_INJECT_SKILLS` only if you tested it and soft is not enough
+- Use `HVA_SKIP_INJECT=1` to compare against no injection
 
 ## Extensions
 

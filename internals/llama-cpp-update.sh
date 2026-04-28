@@ -54,6 +54,8 @@ for backend in CUDA ROCm Vulkan CPU; do
   tag_ref="${current_ref%@*}"
   var_name="${LLAMA_VAR_NAMES[$backend]}"
 
+  old_image_id="$("${DOCKER[@]}" inspect "$current_ref" --format '{{.Id}}' 2>/dev/null || true)"
+
   latest_digest="$(
     "${DOCKER[@]}" buildx imagetools inspect "$tag_ref" 2>/dev/null \
       | awk '/^Digest:/ { print $2; exit }'
@@ -76,6 +78,14 @@ for backend in CUDA ROCm Vulkan CPU; do
 
   echo "pulling $backend image: $latest_ref"
   "${DOCKER[@]}" pull "$latest_ref"
+
+  if [[ -n "$old_image_id" ]]; then
+    new_image_id="$("${DOCKER[@]}" inspect "$latest_ref" --format '{{.Id}}' 2>/dev/null || true)"
+    if [[ -n "$new_image_id" && "$new_image_id" != "$old_image_id" ]]; then
+      echo "removing old $backend image"
+      "${DOCKER[@]}" rmi "$old_image_id" 2>/dev/null || true
+    fi
+  fi
 done
 
 if (( any_updated == 1 )); then

@@ -17,10 +17,7 @@ if [[ "${LLAMA_ENABLE_THINKING:-0}" == "1" ]]; then
   reasoning=true
 fi
 
-max_tokens="16384"
-if [[ -n "${LLAMA_AUTOFIT_TOKENS:-}" && "${LLAMA_AUTOFIT_TOKENS:-}" != "0" ]]; then
-  max_tokens="$LLAMA_AUTOFIT_TOKENS"
-fi
+max_tokens="${HVA_MAX_OUTPUT_TOKENS:-81920}"
 
 mkdir -p "$OUTPUT_DIR"
 tmp_output="$(mktemp "$OUTPUT_DIR/models.json.XXXXXX")"

@@ -1,4 +1,4 @@
 GIT:
 
-- Git is mounted.
-- Never push.
+- git folder is mounted
+- NEVER push

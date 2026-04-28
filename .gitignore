@@ -1,4 +1,5 @@
 models/*
+unused-models/*
 .hva-state/
 benchmarking/results/
 config/hva-conf.json

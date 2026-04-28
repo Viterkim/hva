@@ -1,33 +1,59 @@
 ---
 name: rust-style
-description: "Use for rust files / rust programs. (.rs and related)"
+description: "Rust coding style and preferred crate rules. Use when creating, editing, or working with any Rust code or Rust project."
 ---
 
 # Basics
 
-- format!("{v}") instead of format!("{}", v)
-- import dependencies like 'tokio' at top, instead of tokio::fs, info!("{v}") instead of tracing::info!() etc
-- don't suggest standard/alternative crates over the currently used crates
-- if you lack context/info/simply a little uncertain about a crate, ALWAYS search for it via 'rust-docs' for for understanding + examples
-- also use the workspace repo itself for relevant examples
-- prefer versioning crates with "x.y", so: "1.1", not "1" and not "1.1.2"
-- preferable new crates, only when adding crates:
+- `format!("{v}")` not `format!("{}", v)`
+- import at the top level — `use tokio::fs` not inline `tokio::fs::`, `info!("{v}")` not `tracing::info!()`
+- don't suggest alternative crates over what the project already uses
+- any uncertainty about a crate's API or usage: stop, use rust-docs to look it up — no guessing, no inferring from the crate name
+- use the workspace repo for relevant usage examples
+- version crates with "x.y": `"1.1"` not `"1"` or `"1.1.2"`
+
+## Preferred crates (new deps only)
+
+No API hints here — look everything up via rust-docs before writing any code.
 
 ```
-general: async/tokio (https://docs.rs/tokio/latest/tokio/) (async)
-error handling: exn (https://docs.rs/exn/latest/exn/) (.or_raise(||))
-time: jiff (https://docs.rs/jiff/latest/jiff/) (Timestamp + Zoned)
-cli/conf: conf-rs (https://docs.rs/conf/latest/conf/) (::try_parse_from())
-
+async:          tokio
+error handling: exn
+time:           jiff
+cli/conf:       conf-rs
 ```
 
-- AVOID adding these crates (fine if the project already uses them):
+## Avoid (fine if already in project)
 
 ```
-NO:
-error handling: thiserror/anyhow
-time: chrono
-cli/conf: clap
+error handling: thiserror, anyhow
+time:           chrono
+cli/conf:       clap
 ```
 
-- when making a new crate use a lib structure with a bin/main.rs (don't just make a cargo.toml, actually create the structure, get the newest tokio)
+## New crate structure
+
+Use lib layout. Create manually — do not use `cargo init` which makes a plain binary:
+
+```
+bingo/
+  Cargo.toml
+  src/
+    lib.rs
+    bin/
+      main.rs
+```
+
+Get the current tokio version via rust-docs before writing the Cargo.toml.
+
+## Finish flow
+
+After a full Rust edit pass is done, do this before you stop:
+
+1. run `cargo check`
+2. if it fails, fix it and rerun `cargo check` until it passes
+3. then run `cargo clippy`
+4. if it fails, fix it and rerun `cargo clippy` until it passes
+5. when both pass, run `cargo fmt`
+
+Do not stop after writing Rust code without doing that flow.

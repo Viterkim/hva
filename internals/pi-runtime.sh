@@ -33,10 +33,14 @@ hva_pi_base_args() {
     --no-skills \
     --extension "$ext_dir/agent-guidance.ts" \
     --extension "$ext_dir/mcp-tools.ts" \
-    --skill "$skills_dir" \
-    --extension "$ext_dir/node_modules/pi-lens/index.ts" \
-    --skill "$ext_dir/node_modules/pi-lens/skills" \
-    --no-read-guard
+    --skill "$skills_dir"
+
+  if hva_extension_enabled "pi-lens"; then
+    printf '%s\0' \
+      --no-read-guard \
+      --extension "$ext_dir/node_modules/pi-lens/index.ts" \
+      --skill "$ext_dir/node_modules/pi-lens/skills"
+  fi
 
   if [[ "$mode" == "print" ]]; then
     printf '%s\0' \
@@ -62,6 +66,10 @@ hva_csv_contains() {
 
 hva_skill_enabled() {
   hva_csv_contains "$1" "${HVA_SKILLS_ENABLED:-}"
+}
+
+hva_extension_enabled() {
+  hva_csv_contains "$1" "${HVA_EXTENSIONS_ENABLED:-}"
 }
 
 hva_link_skill_dir() {
@@ -119,7 +127,6 @@ hva_run_pi() {
   local session_dir="${HVA_PI_SESSION_DIR:-/hva-state/pi-sessions}"
   local mode="interactive"
   local append_system_prompt="${HVA_PI_APPEND_SYSTEM_PROMPT:-}"
-  local pi_lens_startup_mode="${PI_LENS_STARTUP_MODE:-}"
   local -a args=()
   local arg
 
@@ -142,9 +149,5 @@ hva_run_pi() {
   if [[ -n "$append_system_prompt" ]]; then
     args+=(--append-system-prompt "$append_system_prompt")
   fi
-  if [[ -n "$pi_lens_startup_mode" ]]; then
-    PI_LENS_STARTUP_MODE="$pi_lens_startup_mode" pi "${args[@]}" "$@"
-  else
-    pi "${args[@]}" "$@"
-  fi
+  pi "${args[@]}" "$@"
 }
