@@ -37,6 +37,11 @@ fi
 
 hva_load_secrets() {
   local secrets_file
+  local key
+
+  for key in GITHUB_PERSONAL_ACCESS_TOKEN GITHUB_TOKEN BRAVE_API_KEY; do
+    unset "$key"
+  done
 
   if [[ "${HVA_LOAD_SECRETS:-1}" != "1" ]]; then
     return
@@ -72,13 +77,11 @@ hva_load_secrets() {
 }
 
 hva_normalize_github_tokens() {
-  if [[ -z "${GITHUB_TOKEN-}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN-}" ]]; then
-    export GITHUB_TOKEN="$GITHUB_PERSONAL_ACCESS_TOKEN"
-  fi
-
-  if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN-}" && -n "${GITHUB_TOKEN-}" ]]; then
+  if [[ -n "${GITHUB_TOKEN-}" && -z "${GITHUB_PERSONAL_ACCESS_TOKEN-}" ]]; then
     export GITHUB_PERSONAL_ACCESS_TOKEN="$GITHUB_TOKEN"
   fi
+
+  unset GITHUB_TOKEN
 }
 
 # shellcheck disable=SC1091

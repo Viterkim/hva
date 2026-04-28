@@ -32,7 +32,7 @@ done < "$VERSIONS_FILE"
 
 USER_UID="${USER_UID:-$(id -u)}"
 USER_GID="${USER_GID:-$(id -g)}"
-USERNAME="${USERNAME:-dev}"
+USERNAME="${HVA_DEV_USER:-dev}"
 HVA_CSHARP="${HVA_CSHARP:-false}"
 IMAGE_NAME="${IMAGE_NAME:-hva-safeprison}"
 FORCE_REBUILD=0

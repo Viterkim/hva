@@ -411,7 +411,7 @@ should_pass_secret_env() {
   local env_name="$1"
 
   case "$env_name" in
-    GITHUB_PERSONAL_ACCESS_TOKEN|GITHUB_TOKEN)
+    GITHUB_PERSONAL_ACCESS_TOKEN)
       hva_mcp_enabled "github" || hva_mcp_enabled "rust-docs"
       ;;
     BRAVE_API_KEY)
@@ -426,6 +426,37 @@ should_pass_secret_env() {
 if [[ "$MODE" == "daemon" ]]; then
   exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
 fi
+
+ensure_hva_state_writable() {
+  local check_file="$HVA_STATE_ROOT/.write-check"
+  local host_uid host_gid
+
+  mkdir -p "$HVA_STATE_ROOT" 2>/dev/null || true
+  if touch "$check_file" 2>/dev/null; then
+    rm -f "$check_file"
+    return
+  fi
+
+  if ! "${DOCKER[@]}" image inspect "$DEV_IMAGE" >/dev/null 2>&1; then
+    IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
+  fi
+
+  host_uid="$(id -u)"
+  host_gid="$(id -g)"
+  echo "repairing HVA state ownership..." >&2
+  "${DOCKER[@]}" run --rm \
+    -u root \
+    -v "$HVA_ROOT:/hva-host" \
+    "$DEV_IMAGE" \
+    bash -lc "mkdir -p /hva-host/.hva-state && chown -R $host_uid:$host_gid /hva-host/.hva-state"
+
+  mkdir -p "$HVA_STATE_ROOT"
+  if ! touch "$check_file" 2>/dev/null; then
+    echo "failed to repair writable HVA state: $HVA_STATE_ROOT" >&2
+    exit 1
+  fi
+  rm -f "$check_file"
+}
 
 cleanup() {
   if [[ "$PROMPT_FILE_TEMP" == "1" && -n "$PROMPT_HOST_FILE" && -f "$PROMPT_HOST_FILE" ]]; then
@@ -548,6 +579,10 @@ prepare_prompt_mode() {
   esac
 }
 
+if [[ "$HVA_MODE" != "local-pi" ]]; then
+  ensure_hva_state_writable
+fi
+
 prepare_prompt_mode
 
 source "$SCRIPT_DIR/../internals/docker-network.sh"
@@ -649,9 +684,38 @@ ensure_dev_image() {
   IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
 }
 
+repair_hva_state_permissions() {
+  ensure_hva_state_writable
+}
+
+dev_container_uses_current_image() {
+  local cimg img
+  cimg="$("${DOCKER[@]}" inspect "$dev_name" --format '{{.Image}}' 2>/dev/null || true)"
+  img="$("${DOCKER[@]}" image inspect "$DEV_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
+  [[ -n "$cimg" && -n "$img" && "$cimg" == "$img" ]]
+}
+
+dev_container_runtime_matches_expected_user() {
+  local identity actual_user actual_home
+
+  identity="$("${DOCKER[@]}" exec "$dev_name" bash -lc 'printf "%s\n%s\n" "$(id -un)" "$HOME"' 2>/dev/null || true)"
+  actual_user="$(printf '%s\n' "$identity" | sed -n '1p')"
+  actual_home="$(printf '%s\n' "$identity" | sed -n '2p')"
+
+  [[ "$actual_user" == "$DEV_USER" && "$actual_home" == "/home/$DEV_USER" ]]
+}
+
 dev_container_is_reusable() {
   local cws
   if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
+    return 1
+  fi
+
+  if ! dev_container_uses_current_image; then
+    return 1
+  fi
+
+  if ! dev_container_runtime_matches_expected_user; then
     return 1
   fi
 
@@ -672,6 +736,14 @@ dev_container_is_reusable() {
 
 running_dev_container_workspace() {
   if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
+    return 1
+  fi
+
+  if ! dev_container_uses_current_image; then
+    return 1
+  fi
+
+  if ! dev_container_runtime_matches_expected_user; then
     return 1
   fi
 
@@ -880,6 +952,7 @@ dev_name="hva-dev"
 bash_reuse_running_container=0
 bash_running_workspace=""
 container_workdir="/workspace"
+ensure_dev_image
 
 stdio_args=()
 if [[ "$MODE" != "prompt" && "$MODE" != "diff-review" ]]; then
@@ -1017,7 +1090,6 @@ done
 
 for env_name in \
   GITHUB_PERSONAL_ACCESS_TOKEN \
-  GITHUB_TOKEN \
   BRAVE_API_KEY; do
   if [[ -n "${!env_name-}" ]] && should_pass_secret_env "$env_name"; then
     add_optional_container_env "$env_name"
@@ -1149,7 +1221,7 @@ exec_args=(
 if (( bash_reuse_running_container == 0 )); then
   if ! dev_container_is_reusable; then
     "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
-    ensure_dev_image
+    repair_hva_state_permissions
     ensure_dev_container
   fi
 fi

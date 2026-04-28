@@ -206,8 +206,8 @@ ARG HVA_V_CARGO_BINSTALL_VERSION
 ARG HVA_V_JUST_VERSION
 ARG HVA_V_NEXTEST_VERSION
 ARG HVA_V_BOTTOM_VERSION
-RUN --mount=type=cache,id=hva-cargo-registry,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/.cargo/registry \
-    --mount=type=cache,id=hva-cargo-git,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/.cargo/git \
+RUN --mount=type=cache,id=hva-cargo-registry,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/${USERNAME}/.cargo/registry \
+    --mount=type=cache,id=hva-cargo-git,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/${USERNAME}/.cargo/git \
     cargo install cargo-binstall --version "${HVA_V_CARGO_BINSTALL_VERSION}" \
     && cargo binstall -y "just@${HVA_V_JUST_VERSION}" "cargo-nextest@${HVA_V_NEXTEST_VERSION}" "bottom@${HVA_V_BOTTOM_VERSION}" \
     && just --version \
@@ -219,7 +219,7 @@ ARG HVA_V_STATICCHECK_VERSION
 ARG HVA_V_GOFUMPT_VERSION
 ARG HVA_V_DLV_VERSION
 ARG HVA_V_LAZYDOCKER_VERSION
-RUN --mount=type=cache,id=hva-go-pkg-v2,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/go/pkg \
+RUN --mount=type=cache,id=hva-go-pkg-v2,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/${USERNAME}/go/pkg \
     go install "golang.org/x/tools/gopls@${HVA_V_GOPLS_VERSION}" \
     && go install "honnef.co/go/tools/cmd/staticcheck@${HVA_V_STATICCHECK_VERSION}" \
     && go install "mvdan.cc/gofumpt@${HVA_V_GOFUMPT_VERSION}" \
@@ -239,7 +239,7 @@ ARG HVA_V_RUFF_VERSION
 ARG HVA_V_MYPY_VERSION
 ARG HVA_V_PYTEST_VERSION
 ARG HVA_V_IPYTHON_VERSION
-RUN --mount=type=cache,id=hva-uv,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/dev/.cache/uv \
+RUN --mount=type=cache,id=hva-uv,mode=0777,uid=${USER_UID},gid=${USER_GID},sharing=locked,target=/home/${USERNAME}/.cache/uv \
     uv tool install "ruff==${HVA_V_RUFF_VERSION}" \
     && uv tool install "mypy==${HVA_V_MYPY_VERSION}" \
     && uv tool install "pytest==${HVA_V_PYTEST_VERSION}" \

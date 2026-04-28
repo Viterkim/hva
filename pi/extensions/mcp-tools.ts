@@ -79,8 +79,7 @@ export function githubHeaders() {
     Accept: "application/vnd.github+json",
     "User-Agent": "hva-pi-tools",
   };
-  const token =
-    process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? process.env.GITHUB_TOKEN;
+  const token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
