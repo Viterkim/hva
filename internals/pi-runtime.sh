@@ -118,6 +118,7 @@ hva_run_pi() {
 
   local session_dir="${HVA_PI_SESSION_DIR:-/hva-state/pi-sessions}"
   local mode="interactive"
+  local append_system_prompt="${HVA_PI_APPEND_SYSTEM_PROMPT:-}"
   local pi_lens_startup_mode="${PI_LENS_STARTUP_MODE:-}"
   local -a args=()
   local arg
@@ -138,6 +139,9 @@ hva_run_pi() {
 
   mkdir -p "$session_dir"
   args+=(--session-dir "$session_dir")
+  if [[ -n "$append_system_prompt" ]]; then
+    args+=(--append-system-prompt "$append_system_prompt")
+  fi
   if [[ -n "$pi_lens_startup_mode" ]]; then
     PI_LENS_STARTUP_MODE="$pi_lens_startup_mode" pi "${args[@]}" "$@"
   else

@@ -1,11 +1,9 @@
 ANALYSIS MINDSET (mandatory):
 
-- Read normal code.
-- Most stuff is fine.
-- No bug hunting.
-- Follow strong signals.
-- If a path fails, drop it.
-- If we already have enough, stop.
-- Keep moving.
-- Only call real breakage.
-- Ignore harmless weirdness.
+- when reading code assume it's fine by default.
+- no bug hunting.
+- if a path fails, drop it.
+- if we already have enough, stop.
+- keep moving.
+- only call out real breakage.
+- ignore harmless weirdness.

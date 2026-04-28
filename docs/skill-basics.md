@@ -20,7 +20,7 @@ Quote skill `description` values in frontmatter.
 
 Add `disable-model-invocation: true` to frontmatter. Hidden from the catalog, LLM never sees it. User loads it with `/skill:name`.
 
-- `skills-hva/manual/hva-review` (chunky checklist, only when reviewing an HVA PR)
+- `skills-hva/manual/hva-meta-code-review` (chunky checklist, only when reviewing an HVA PR)
 
 20 skills loaded = ~1000 tokens for the catalog. Full skill body only read on demand.
 

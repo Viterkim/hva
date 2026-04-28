@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: "Use for docs and markdown."
+description: "Use for docs and markdown / .md"
 ---
 
 # Documentation Style
