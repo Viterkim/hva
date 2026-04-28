@@ -1,25 +1,22 @@
 ---
-name: git
-description: "Use first for git status, history, branches, commits, diffs, review, and repo-history questions."
+name: git-yes
+description: "Use first for git status, history, branches, commits, diffs, review, and repo-history questions when git is mounted."
 ---
 
 # Git
+
+Git is available in this session.
 
 Use this when the user asks about:
 
 - `git status`
 - commit history
 - branches
+- tags
 - diffs
 - merge-base
 - "what changed?"
 - local review
-
-If the runtime says git is not mounted, do not use git commands here.
-
-Say git is not available in this session.
-
-If the runtime says git is mounted, git commands are allowed inside the session.
 
 Never push.
 

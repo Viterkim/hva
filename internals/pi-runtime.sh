@@ -25,8 +25,7 @@ hva_ensure_pi_extension_deps() {
 hva_pi_base_args() {
   local mode="${1:-interactive}"
   local ext_dir="${HVA_PI_EXTENSIONS_DIR:-/hva/pi/extensions}"
-  local skills_dir="${HVA_PI_SKILLS_DIR:-/hva/skills}"
-  local hva_skills_dir="${HVA_PI_HVA_SKILLS_DIR:-/hva/skills-hva}"
+  local skills_dir="${HVA_PI_ACTIVE_SKILLS_DIR:-/hva-state/skills-active}"
 
   printf '%s\0' \
     --no-context-files \
@@ -35,7 +34,6 @@ hva_pi_base_args() {
     --extension "$ext_dir/agent-guidance.ts" \
     --extension "$ext_dir/mcp-tools.ts" \
     --skill "$skills_dir" \
-    --skill "$hva_skills_dir" \
     --extension "$ext_dir/node_modules/pi-lens/index.ts" \
     --skill "$ext_dir/node_modules/pi-lens/skills" \
     --no-read-guard
@@ -46,13 +44,81 @@ hva_pi_base_args() {
   fi
 }
 
+hva_csv_contains() {
+  local needle="$1"
+  local haystack="${2:-}"
+  local value
+  IFS=',' read -r -a _hva_csv_values <<< "$haystack"
+  for value in "${_hva_csv_values[@]}"; do
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    [[ -z "$value" ]] && continue
+    if [[ "$value" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+hva_skill_enabled() {
+  hva_csv_contains "$1" "${HVA_SKILLS_ENABLED:-}"
+}
+
+hva_link_skill_dir() {
+  local src="$1"
+  local dest_root="$2"
+  local kind="$3"
+  local name="$4"
+  mkdir -p "$dest_root/$kind"
+  ln -s "$src" "$dest_root/$kind/$name"
+}
+
+hva_prepare_active_skills() {
+  local source_skills_dir="${HVA_PI_SKILLS_SOURCE_DIR:-/hva/skills}"
+  local source_hva_skills_dir="${HVA_PI_HVA_SKILLS_SOURCE_DIR:-/hva/skills-hva}"
+  local active_skills_dir="${HVA_PI_ACTIVE_SKILLS_DIR:-/hva-state/skills-active}"
+  local skill_dir skill_name
+
+  rm -rf "$active_skills_dir"
+  mkdir -p "$active_skills_dir/auto" "$active_skills_dir/manual"
+
+  for skill_dir in "$source_skills_dir"/auto/*; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    [[ "$skill_name" == "mcp" ]] && continue
+    hva_skill_enabled "$skill_name" || continue
+    hva_link_skill_dir "$skill_dir" "$active_skills_dir" auto "$skill_name"
+  done
+
+  for skill_dir in "$source_skills_dir"/manual/*; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    hva_skill_enabled "$skill_name" || continue
+    hva_link_skill_dir "$skill_dir" "$active_skills_dir" manual "$skill_name"
+  done
+
+  for skill_dir in "$source_hva_skills_dir"/auto/*; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    hva_skill_enabled "$skill_name" || continue
+    hva_link_skill_dir "$skill_dir" "$active_skills_dir" auto "$skill_name"
+  done
+
+  for skill_dir in "$source_hva_skills_dir"/manual/*; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    hva_skill_enabled "$skill_name" || continue
+    hva_link_skill_dir "$skill_dir" "$active_skills_dir" manual "$skill_name"
+  done
+}
+
 hva_run_pi() {
   local session_file="${1:-}"
   shift || true
 
   local session_dir="${HVA_PI_SESSION_DIR:-/hva-state/pi-sessions}"
   local mode="interactive"
-  local pi_lens_startup_mode="${PI_LENS_STARTUP_MODE:-quick}"
+  local pi_lens_startup_mode="${PI_LENS_STARTUP_MODE:-}"
   local -a args=()
   local arg
 
@@ -63,6 +129,7 @@ hva_run_pi() {
     fi
   done
 
+  hva_prepare_active_skills
   mapfile -d '' -t args < <(hva_pi_base_args "$mode")
 
   if [[ -n "$session_file" ]]; then
@@ -71,5 +138,9 @@ hva_run_pi() {
 
   mkdir -p "$session_dir"
   args+=(--session-dir "$session_dir")
-  PI_LENS_STARTUP_MODE="$pi_lens_startup_mode" pi "${args[@]}" "$@"
+  if [[ -n "$pi_lens_startup_mode" ]]; then
+    PI_LENS_STARTUP_MODE="$pi_lens_startup_mode" pi "${args[@]}" "$@"
+  else
+    pi "${args[@]}" "$@"
+  fi
 }

@@ -5,6 +5,29 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 HVA_ROOT="${HVA_ROOT:-$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)}"
 SAMPLE="$HVA_ROOT/config/hva-conf.json.sample"
 TARGET="${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}"
+QUIET=0
+
+case "${1:-}" in
+  "")
+    ;;
+  --quiet)
+    QUIET=1
+    ;;
+  -h|--help|help)
+    cat <<EOF
+Usage:
+  sync-config.sh [--quiet]
+
+Create config/hva-conf.json if missing, or merge in any sample keys that were
+added later. Unknown keys still fail.
+EOF
+    exit 0
+    ;;
+  *)
+    echo "unknown argument: $1" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -f "$SAMPLE" ]]; then
   echo "missing sample config: $SAMPLE" >&2
@@ -32,7 +55,9 @@ if [[ -f "$TARGET" ]]; then
       done <<< "$unknown_keys"
       exit 1
     fi
-    echo "config exists: $TARGET"
+    if (( QUIET == 0 )); then
+      echo "config exists: $TARGET"
+    fi
     exit 0
   fi
   mv "$tmp" "$TARGET"

@@ -1,11 +1,11 @@
 ---
-name: hva-git-review
-description: "Use for explicit local diff review targets inside HVA."
+name: git-review
+description: "Use for explicit local diff review targets when git is available."
 ---
 
-# HVA Git Review
+# Git Review
 
-Use this only when the runtime says git is mounted.
+Use this only when git is available in the session.
 
 Use it when the user wants review against `main`, another branch, a commit, staged changes, unstaged changes, or all local changes from inside the session.
 
@@ -37,11 +37,11 @@ Run exactly one of these first:
 
 Examples:
 
-- `/skill:hva-git-review main`
-- `/skill:hva-git-review branch feature/foo`
-- `/skill:hva-git-review branch 906d439e48d290c012be504cf578e8974e5caafb`
-- `/skill:hva-git-review commit 906d439e48d290c012be504cf578e8974e5caafb`
-- `/skill:hva-git-review staged`
+- `/skill:git-review main`
+- `/skill:git-review branch feature/foo`
+- `/skill:git-review branch 906d439e48d290c012be504cf578e8974e5caafb`
+- `/skill:git-review commit 906d439e48d290c012be504cf578e8974e5caafb`
+- `/skill:git-review staged`
 
 If the user gives a revision-like target, review against that target.
 
@@ -50,5 +50,3 @@ Do not turn `branch <target>` or `commit <target>` into unstaged or staged revie
 Review the helper output directly after that.
 
 Only use plain git commands if the helper script fails, and say that it failed.
-
-Use this instead of the outside `hva --diff-review-*` path when git is mounted and the user is already inside the HVA session.

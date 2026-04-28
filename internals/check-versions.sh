@@ -83,15 +83,20 @@ fetch_github_release() {
 fetch_container_digest() {
     local image_ref="$1"
     local tag_ref="${image_ref%@*}"
+    local inspect_output digest
 
     if (( ${#DOCKER[@]} == 0 )); then
         echo "?"
         return
     fi
 
-    "${DOCKER[@]}" buildx imagetools inspect "$tag_ref" 2>/dev/null \
-        | awk '/^Digest:/ { print $2; exit }' \
-        || echo "?"
+    inspect_output="$("${DOCKER[@]}" buildx imagetools inspect "$tag_ref" 2>/dev/null || true)"
+    digest="$(awk '/^Digest:/ { print $2; exit }' <<< "$inspect_output")"
+    if [[ -n "$digest" ]]; then
+        echo "$digest"
+    else
+        echo "?"
+    fi
 }
 
 fetch_rust_stable() {
@@ -145,20 +150,17 @@ check() {
     elif [[ "$p" == "$l"    ]]; then status="${GREEN}ok${NC}"
     else                              status="${RED}update${NC}"
     fi
-    printf "  %-40s %-18s %-18s %b\n" "$name" "$pinned" "$latest" "$status"
+    printf "  %-40s %-29s %-29s %b\n" "$name" "$pinned" "$latest" "$status"
 }
 
 check_image() {
     local name="$1" pinned_ref="$2" latest_digest="$3"
     local pinned_digest="${pinned_ref##*@}"
-    local pinned_short="${pinned_digest:0:18}"
-    local latest_short="$latest_digest"
     local status
 
     if [[ "$latest_digest" == "?" ]]; then
         status="?"
     else
-        latest_short="${latest_digest:0:18}"
         if [[ "$pinned_digest" == "$latest_digest" ]]; then
             status="${GREEN}ok${NC}"
         else
@@ -166,16 +168,15 @@ check_image() {
         fi
     fi
 
-    printf "  %-40s %-18s %-18s %b\n" "$name" "$pinned_short" "$latest_short" "$status"
+    printf "  %-40s %b\n" "$name" "$status"
+    printf "    pinned: %s\n" "$pinned_digest"
+    printf "    latest: %s\n" "$latest_digest"
 }
 
 check_custom() {
     local name="$1" pinned="$2"
-    printf "  %-40s %-18s %-18s %b\n" "$name" "$pinned" "custom" "${GREEN}ok${NC}"
+    printf "  %-40s %-29s %-29s %b\n" "$name" "$pinned" "custom" "${GREEN}ok${NC}"
 }
-
-printf "\n  %-40s %-18s %-18s\n" "package" "pinned" "latest"
-printf "  %-40s %-18s %-18s\n"   "-------" "------" "------"
 
 echo ""
 echo "  images"
@@ -185,6 +186,9 @@ check_image "llama.cpp ROCm"    "$HVA_V_LLAMA_CPP_IMAGE_ROCM"    "$(fetch_contai
 check_image "llama.cpp Vulkan"  "$HVA_V_LLAMA_CPP_IMAGE_VULKAN"  "$(fetch_container_digest "$HVA_V_LLAMA_CPP_IMAGE_VULKAN")"
 check_image "llama.cpp CPU"     "$HVA_V_LLAMA_CPP_IMAGE_CPU"     "$(fetch_container_digest "$HVA_V_LLAMA_CPP_IMAGE_CPU")"
 check_image "searxng image"           "$HVA_V_SEARXNG_IMAGE"           "$(fetch_container_digest "$HVA_V_SEARXNG_IMAGE")"
+
+printf "\n  %-40s %-29s %-29s\n" "package" "pinned" "latest"
+printf "  %-40s %-29s %-29s\n"   "-------" "------" "------"
 
 echo ""
 echo "  runtimes"

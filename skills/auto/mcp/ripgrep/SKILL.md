@@ -1,6 +1,6 @@
 ---
 name: ripgrep
-description: "Use first for workspace search: code text, config keys, logs, symbols, repeated snippets, and which files mention something."
+description: "Use first for workspace search: code text, errors, logs, config keys, symbol names, repeated snippets, references, and which files mention something."
 ---
 
 # Ripgrep
@@ -10,12 +10,15 @@ Use `ripgrep_search` first when the user wants to find something inside workspac
 This is the default move for:
 
 - code text
+- references
 - config keys
 - symbol names
 - error strings
 - logs
 - repeated snippets
 - which files mention something
+- where something is used
+- where a message comes from
 
 Do this instead of bash `grep`, `find | grep`, or `ls | grep`.
 

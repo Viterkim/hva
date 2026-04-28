@@ -21,6 +21,8 @@ ENV_CONFIG_KEYS=(
   LLAMA_REPEAT_PENALTY
   HVA_MCP_ENABLED
   HVA_MCP_DISABLED
+  HVA_SKILLS_ENABLED
+  HVA_SKILLS_DISABLED
   SEARXNG_URL
   HVA_LOAD_SECRETS
   HVA_MOUNT_GIT
@@ -88,6 +90,36 @@ KNOWN_MCP_KEYS=(
   brave-search
   searxng
 )
+
+env_csv_contains() {
+  local needle="$1"
+  local haystack="${2:-}"
+  local value
+  IFS=',' read -r -a _env_csv_values <<< "$haystack"
+  for value in "${_env_csv_values[@]}"; do
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    [[ -z "$value" ]] && continue
+    if [[ "$value" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+env_known_skill_keys() {
+  local root skill_dir skill_name
+  for root in "$HVA_ROOT/skills" "$HVA_ROOT/skills-hva"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r -d '' skill_dir; do
+      case "$skill_dir" in
+        */auto/mcp|*/auto/mcp/*) continue ;;
+      esac
+      skill_name="$(basename "$skill_dir")"
+      [[ -n "$skill_name" ]] && printf '%s\n' "$skill_name"
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null)
+  done
+}
 
 env_is_number() {
   [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]
@@ -158,8 +190,10 @@ env_require_non_negative_number() {
 
 env_validate_common() {
   local missing=0
-  local mcp_name
+  local mcp_name skill_name
   local combined_mcp seen_mcp
+  local seen_skills known_skills_output
+  local git_yes_enabled=0 git_no_enabled=0 git_review_enabled=0
 
   env_require_present "${ENV_CONFIG_KEYS[@]}" || missing=1
   env_require_nonempty "${ENV_REQUIRED_NONEMPTY_KEYS[@]}" || missing=1
@@ -228,6 +262,63 @@ env_validate_common() {
       exit 1
     fi
   done
+
+  known_skills_output="$(env_known_skill_keys)"
+  seen_skills=","
+  IFS=',' read -r -a skill_values <<< "$HVA_SKILLS_ENABLED,$HVA_SKILLS_DISABLED"
+  for skill_name in "${skill_values[@]}"; do
+    [[ -z "$skill_name" ]] && continue
+    if ! grep -Fxq -- "$skill_name" <<< "$known_skills_output"; then
+      echo "unknown skill entry in HVA config: $skill_name" >&2
+      echo "known skill entries:" >&2
+      sed 's/^/  /' <<< "$known_skills_output" >&2
+      exit 1
+    fi
+    if [[ "$seen_skills" == *",$skill_name,"* ]]; then
+      echo "skill entry listed more than once or in both enabled/disabled: $skill_name" >&2
+      exit 1
+    fi
+    seen_skills+="$skill_name,"
+  done
+
+  while IFS= read -r skill_name; do
+    [[ -z "$skill_name" ]] && continue
+    if [[ "$seen_skills" != *",$skill_name,"* ]]; then
+      echo "skill entry is not listed in enabled or disabled: $skill_name" >&2
+      exit 1
+    fi
+  done <<< "$known_skills_output"
+
+  if env_csv_contains "git-yes" "$HVA_SKILLS_ENABLED"; then
+    git_yes_enabled=1
+  fi
+  if env_csv_contains "git-no" "$HVA_SKILLS_ENABLED"; then
+    git_no_enabled=1
+  fi
+  if env_csv_contains "git-review" "$HVA_SKILLS_ENABLED"; then
+    git_review_enabled=1
+  fi
+
+  if (( git_yes_enabled == git_no_enabled )); then
+    echo "exactly one of git-yes or git-no must be enabled" >&2
+    exit 1
+  fi
+
+  if [[ "${HVA_MOUNT_GIT:-0}" == "1" ]]; then
+    if (( git_yes_enabled != 1 || git_no_enabled != 0 )); then
+      echo "HVA_MOUNT_GIT=1 requires git-yes enabled and git-no disabled" >&2
+      exit 1
+    fi
+  else
+    if (( git_no_enabled != 1 || git_yes_enabled != 0 )); then
+      echo "HVA_MOUNT_GIT=0 requires git-no enabled and git-yes disabled" >&2
+      exit 1
+    fi
+    if (( git_review_enabled == 1 )); then
+      echo "git-review cannot be enabled when git is not mounted" >&2
+      exit 1
+    fi
+  fi
 }
 
 env_validate_model() {

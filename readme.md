@@ -52,7 +52,6 @@ ln -s /path/to/hva/completions/hva.fish ~/.config/fish/completions/hva.fish
 - `/list-skills` - show HVA skills by group
 - `/use-skill` - pick a manual skill and insert the `/skill:...` call
 - `/git` - prepare a local git review diff and send it to the agent
-- `/skill:git` - git status, history, diffs, branches, and git rules
 - `/skill:read-repo` - preview, ignore, and load a repo or subpath into context
 - `/skill:hva-review` - run the HVA repo review checklist
 - `/skill:hva-new-skill` - make or change HVA skills and extensions

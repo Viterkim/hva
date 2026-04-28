@@ -330,10 +330,6 @@ case "$MODE" in
     exit 0
     ;;
   loop-init)
-    if [[ ! -f "${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}" ]]; then
-      echo "HVA config not found — creating from sample..."
-      "$HVA_ROOT/internals/sync-config.sh"
-    fi
     # shellcheck disable=SC1091
     source "$HVA_ROOT/internals/load-config.sh"
     create_loop_tasks_file
@@ -374,11 +370,6 @@ fi
 
 if [[ "$MODE" == "stop-searxng" ]]; then
   exec "$HVA_ROOT/internals/run-hva-searxng.sh" stop
-fi
-
-if [[ ! -f "${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}" ]]; then
-  echo "HVA config not found — creating from sample..."
-  "$HVA_ROOT/internals/sync-config.sh"
 fi
 
 # shellcheck disable=SC1091
@@ -807,9 +798,11 @@ prepare_local_pi_env() {
   "$HVA_ROOT/internals/overwrite-local-confs.sh" >/dev/null
   init_local_pi_lens_symlinks
 
+  mkdir -p "$WORKSPACE_STATE_ROOT"
   export HVA_PI_EXTENSIONS_DIR="$HVA_ROOT/pi/extensions"
-  export HVA_PI_SKILLS_DIR="$HVA_ROOT/skills"
-  export HVA_PI_HVA_SKILLS_DIR="$HVA_ROOT/skills-hva"
+  export HVA_PI_SKILLS_SOURCE_DIR="$HVA_ROOT/skills"
+  export HVA_PI_HVA_SKILLS_SOURCE_DIR="$HVA_ROOT/skills-hva"
+  export HVA_PI_ACTIVE_SKILLS_DIR="$WORKSPACE_STATE_ROOT/pi-skills-active"
   export HVA_PI_SESSION_DIR="$pi_dir/sessions"
 }
 
@@ -1014,6 +1007,8 @@ add_optional_container_env() {
 for env_name in \
   HVA_MCP_ENABLED \
   HVA_MCP_DISABLED \
+  HVA_SKILLS_ENABLED \
+  HVA_SKILLS_DISABLED \
   SEARXNG_URL \
   HVA_MOUNT_GIT \
   LLAMA_CONTEXT_SIZE; do

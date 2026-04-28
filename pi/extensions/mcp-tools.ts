@@ -269,6 +269,7 @@ export default function (pi: ExtensionAPI) {
       promptSnippet: "Use ripgrep_search first for workspace text search. Do not use bash grep.",
       promptGuidelines: [
         "For text inside workspace files, use ripgrep_search before bash grep or find|grep.",
+        "Use it for code text, errors, logs, config keys, refs, and where something is mentioned.",
         "Use ls or find instead when the task is about file names, file counts, or directory listing.",
         "If one query misses, try another pattern or glob before assuming absence.",
       ],
@@ -310,9 +311,10 @@ export default function (pi: ExtensionAPI) {
       label: "Web Search",
       description: "Search the web with configured HVA search backends.",
       promptSnippet:
-        "Use web_search for current web facts when local repo context is not enough.",
+        "Use web_search for outside facts only after local and more specific tools are not enough.",
       promptGuidelines: [
         "Use web_search when facts may have changed or repository context is insufficient.",
+        "Use repo, package, and language-specific tools first when they fit.",
         "Use web_fetch after web_search when snippets are not enough.",
       ],
       parameters: Type.Object({
@@ -379,6 +381,7 @@ export default function (pi: ExtensionAPI) {
       name: "github_search_repositories",
       label: "GitHub Repo Search",
       description: "Search GitHub repositories.",
+      promptSnippet: "Use GitHub tools first for upstream GitHub repo lookup instead of broad web search.",
       parameters: Type.Object({
         query: Type.String({ description: "GitHub repository search query" }),
         limit: Type.Optional(
@@ -410,6 +413,7 @@ export default function (pi: ExtensionAPI) {
       name: "github_search_code",
       label: "GitHub Code Search",
       description: "Search public GitHub code results.",
+      promptSnippet: "Use GitHub code search first when the answer is in an upstream repo, not the local workspace.",
       parameters: Type.Object({
         query: Type.String({ description: "GitHub code search query" }),
         limit: Type.Optional(
@@ -438,6 +442,7 @@ export default function (pi: ExtensionAPI) {
       name: "github_read_file",
       label: "GitHub Read File",
       description: "Read file contents from a GitHub repository.",
+      promptSnippet: "Use GitHub file tools first for upstream repo files instead of broad web search.",
       parameters: Type.Object({
         owner: Type.String({ description: "Repository owner" }),
         repo: Type.String({ description: "Repository name" }),
@@ -464,6 +469,7 @@ export default function (pi: ExtensionAPI) {
       name: "github_list_directory",
       label: "GitHub List Directory",
       description: "List directory entries from a GitHub repository.",
+      promptSnippet: "Use GitHub directory tools first for upstream repo layout and file lookup.",
       parameters: Type.Object({
         owner: Type.String({ description: "Repository owner" }),
         repo: Type.String({ description: "Repository name" }),
@@ -506,6 +512,12 @@ export default function (pi: ExtensionAPI) {
       name: "npm_package_search",
       label: "npm Package Search",
       description: "Search npm registry packages.",
+      promptSnippet: "Use npm tools first for npm package lookup. Search or info, never guess versions.",
+      promptGuidelines: [
+        "Use npm_package_search when the package name is fuzzy or the user needs candidate packages.",
+        "Use npm_package_info when the exact package name is already known.",
+        "Never guess npm package versions.",
+      ],
       parameters: Type.Object({
         query: Type.String({ description: "npm search query" }),
         limit: Type.Optional(
@@ -548,6 +560,12 @@ export default function (pi: ExtensionAPI) {
       name: "npm_package_info",
       label: "npm Package Info",
       description: "Get npm package metadata from registry.",
+      promptSnippet: "Use npm_package_info first for exact npm package versions and metadata. Never guess versions.",
+      promptGuidelines: [
+        "Use npm_package_info when the exact package name is known.",
+        "Use this first for latest npm package versions.",
+        "Never guess npm package versions.",
+      ],
       parameters: Type.Object({
         packageName: Type.String({ description: "Exact npm package name" }),
         version: Type.Optional(
@@ -576,6 +594,12 @@ export default function (pi: ExtensionAPI) {
       name: "pypi_package_info",
       label: "PyPI Package Info",
       description: "Get PyPI package metadata.",
+      promptSnippet: "Use pypi_package_info first for exact Python package versions and metadata. Never guess versions.",
+      promptGuidelines: [
+        "Use pypi_package_info when the exact package name is known.",
+        "Use this first for latest Python package versions.",
+        "Never guess Python package versions.",
+      ],
       parameters: Type.Object({
         packageName: Type.String({ description: "Exact PyPI package name" }),
       }),
@@ -621,6 +645,12 @@ export default function (pi: ExtensionAPI) {
       name: "crates_search",
       label: "Crates Search",
       description: "Search Rust crates and docs entry points.",
+      promptSnippet: "Use crates_search first when the Rust crate name is fuzzy. Never guess crate names or versions.",
+      promptGuidelines: [
+        "Use crates_search when the user needs candidate crates or the exact name is not known.",
+        "Use crates_package_info when the exact crate name is known.",
+        "Never guess Rust crate versions.",
+      ],
       parameters: Type.Object({
         query: Type.String({ description: "Crate search query" }),
         limit: Type.Optional(
@@ -663,6 +693,12 @@ export default function (pi: ExtensionAPI) {
       name: "crates_package_info",
       label: "Crates Package Info",
       description: "Get Rust crate metadata from crates.io.",
+      promptSnippet: "Use crates_package_info first for exact Rust crate versions and metadata. Never guess versions.",
+      promptGuidelines: [
+        "Use crates_package_info when the exact crate name is known.",
+        "Use this first for latest Rust crate versions.",
+        "Never guess Rust crate versions.",
+      ],
       parameters: Type.Object({
         crateName: Type.String({ description: "Exact crate name" }),
       }),

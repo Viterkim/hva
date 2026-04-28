@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -7,17 +7,6 @@ import { enabledMcp, envFlag } from "./common.ts";
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const optionalSkillsBaseDir = join(baseDir, "..", "..", "skills", "auto", "mcp");
 const runtimeBaseDir = join(baseDir, "..", "..", "hva-runtime");
-
-const MANUAL_SKILL_CHOICES = [
-  { name: "hva-new-skill", description: "make or change HVA skills and extensions" },
-  { name: "hva-review", description: "HVA repo review checklist" },
-  { name: "planner", description: "plan.md and knowns.md workflow" },
-  { name: "read-repo", description: "preview, ignore, and load a repo or subpath into context" },
-] as const;
-
-const MANUAL_SKILLS = MANUAL_SKILL_CHOICES.map(
-  (skill) => `/skill:${skill.name} - ${skill.description}`,
-);
 
 const HVA_COMMAND_CHOICES = [
   { name: "hva-guidance-status", description: "show injected HVA runtime guidance" },
@@ -28,22 +17,13 @@ const HVA_COMMAND_CHOICES = [
   { name: "hva-mcp-status", description: "show enabled HVA MCP-like tools" },
 ] as const;
 
-const AUTO_SKILLS = [
-  "bash-style - bash and shell writing",
-  "documentation - markdown and docs writing",
-  "review - soft code review",
-  "git - git status, history, branches, diffs, and inside-session git rules",
-  "ast-grep - structural code search and rewrite",
-  "lsp-navigation - definitions, refs, diagnostics, symbols",
-] as const;
-
 const OPTIONAL_MCP_SKILLS = {
-  ripgrep: "ripgrep - first stop for workspace text, mentions, config keys, logs, and matching files",
-  searxng: "searxng - outside facts and web lookup after the more specific tools",
-  "rust-docs": "rust-docs - first stop for Rust crates, docs.rs, versions, features, and deps",
-  github: "github - first stop for upstream GitHub repo code, files, PRs, issues, and commits",
-  pypi: "pypi - first stop for Python package names, versions, and metadata",
-  "npm-search": "npm-search - first stop for npm package names, versions, and metadata",
+  ripgrep: "ripgrep - first stop for workspace text, errors, logs, config keys, refs, and where something is mentioned",
+  searxng: "searxng - outside facts, release notes, docs sites, and web lookup after local and specific tools",
+  "rust-docs": "rust-docs - first stop for Rust crates, versions, docs.rs, features, deps, and examples. Never guess versions",
+  github: "github - first stop for upstream GitHub repo code, files, PRs, issues, branches, and commits",
+  pypi: "pypi - first stop for Python package versions, metadata, and exact package checks. Never guess versions",
+  "npm-search": "npm-search - first stop for npm package search, versions, metadata, and release lookup. Never guess versions",
 } as const;
 
 const GIT_COMMAND_CHOICES = [
@@ -65,6 +45,10 @@ function readRuntimeFile(name: string): string {
   return readFileSync(join(runtimeBaseDir, name), "utf-8").trim();
 }
 
+function activeSkillsBaseDir(): string {
+  return process.env.HVA_PI_ACTIVE_SKILLS_DIR?.trim() || "/hva-state/skills-active";
+}
+
 function gitMountEnabled(): boolean {
   return envFlag("HVA_MOUNT_GIT");
 }
@@ -75,44 +59,84 @@ function buildRuntimeSection(): string {
     readRuntimeFile(gitMountEnabled() ? "git-yes.md" : "git-no.md"),
     readRuntimeFile("analysis.md"),
     readRuntimeFile("style.md"),
-    readRuntimeFile("searching.md"),
   ];
   return parts.join("\n\n");
 }
 
+function stripFrontmatterValue(value: string): string {
+  return value.trim().replace(/^["']/, "").replace(/["']$/, "");
+}
+
+function activeSkillEntries(kind: "auto" | "manual"): Array<{ name: string; description: string }> {
+  const dir = join(activeSkillsBaseDir(), kind);
+  if (!existsSync(dir)) {
+    return [];
+  }
+
+  return readdirSync(dir)
+    .map((entry) => {
+      const skillFile = join(dir, entry, "SKILL.md");
+      if (!existsSync(skillFile)) {
+        return undefined;
+      }
+      const text = readFileSync(skillFile, "utf-8");
+      const frontmatter = text.match(/^---\n([\s\S]*?)\n---/);
+      if (!frontmatter) {
+        return undefined;
+      }
+      const nameLine = frontmatter[1].match(/^name:\s*(.+)$/m);
+      const descriptionLine = frontmatter[1].match(/^description:\s*(.+)$/m);
+      if (!nameLine || !descriptionLine) {
+        return undefined;
+      }
+      return {
+        name: stripFrontmatterValue(nameLine[1]),
+        description: stripFrontmatterValue(descriptionLine[1]),
+      };
+    })
+    .filter((entry): entry is { name: string; description: string } => entry !== undefined)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function buildSkillsList(): string {
+  const autoSkills = activeSkillEntries("auto");
+  const manualSkills = activeSkillEntries("manual");
   const enabledOptional = enabledOptionalSkillNames();
   const lines = [
     "always loaded",
     "- hva-runtime - injected runtime guidance",
-    gitMountEnabled()
-      ? "- git-yes - git mounted"
-      : "- git-no - no git access",
     "- list-skills command",
     "- list-cmds command",
     "- use-skill command",
     "- git command",
     "",
     "loaded by context",
-    ...AUTO_SKILLS.map((skill) => `- ${skill}`),
+    ...autoSkills.map((skill) => `- ${skill.name} - ${skill.description}`),
     ...enabledOptional.map((name) => `- ${OPTIONAL_MCP_SKILLS[name]}`),
     "",
     "manual",
-    ...MANUAL_SKILLS.map((skill) => `- ${skill}`),
+    ...manualSkills.map((skill) => `- /skill:${skill.name} - ${skill.description}`),
   ];
   return lines.join("\n");
 }
 
 function buildCommandsList(): string {
+  const manualSkills = activeSkillEntries("manual");
+  const autoSkills = activeSkillEntries("auto");
+  const hasGitReview = autoSkills.some((skill) => skill.name === "git-review");
   const lines = [
     "custom commands",
     ...HVA_COMMAND_CHOICES.map((command) => `- /${command.name} - ${command.description}`),
     "- /git - prepare a local git review diff and send it to the agent",
     "",
     "blessed flows",
-    ...MANUAL_SKILLS.map((skill) => `- ${skill}`),
-    "- /skill:git - git status, history, diffs, branches, and git rules",
-    "- /skill:hva-git-review main|branch <target>|commit <rev>|staged|unstaged|all - explicit local diff review",
+    ...manualSkills.map((skill) => `- /skill:${skill.name} - ${skill.description}`),
+    ...autoSkills
+      .filter((skill) => skill.name === "git-yes" || skill.name === "git-no")
+      .map((skill) => `- /skill:${skill.name} - ${skill.description}`),
+    ...(hasGitReview
+      ? ["- /skill:git-review main|branch <target>|commit <rev>|staged|unstaged|all - explicit local diff review"]
+      : []),
   ];
   return lines.join("\n");
 }
@@ -230,14 +254,19 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("use-skill", {
     description: "Pick a manual skill and insert the /skill call into the editor",
     handler: async (_args, ctx) => {
-      const options = MANUAL_SKILL_CHOICES.map(
+      const manualSkills = activeSkillEntries("manual");
+      if (manualSkills.length === 0) {
+        ctx.ui.notify("No manual skills are active in this session", "warning");
+        return;
+      }
+      const options = manualSkills.map(
         (skill) => `/skill:${skill.name} - ${skill.description}`,
       );
       const picked = await ctx.ui.select("Use skill", options);
       if (!picked) {
         return;
       }
-      const skill = MANUAL_SKILL_CHOICES.find(
+      const skill = manualSkills.find(
         (entry) => picked === `/skill:${entry.name} - ${entry.description}`,
       );
       if (!skill) {

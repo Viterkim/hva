@@ -4,6 +4,8 @@
   "LLAMA_CONTEXT_SIZE": "262144",
   "HVA_MCP_ENABLED": "ripgrep,rust-docs,searxng",
   "HVA_MCP_DISABLED": "github,pypi,npm-search,brave-search",
+  "HVA_SKILLS_ENABLED": "bash-style,documentation,review,planner,read-repo,hva-new-skill,hva-review,git-no",
+  "HVA_SKILLS_DISABLED": "git-yes,git-review",
   "SEARXNG_URL": "http://host.docker.internal:8888",
   "LLAMA_MODEL_ALIAS": "local",
   "LLAMA_CONTAINER": "hva-llama-server",

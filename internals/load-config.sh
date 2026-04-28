@@ -7,23 +7,14 @@ if [[ -z "${HVA_ROOT:-}" ]]; then
 fi
 
 HVA_CONFIG="${HVA_CONFIG:-$HVA_ROOT/config/hva-conf.json}"
-HVA_CONFIG_SAMPLE="$HVA_ROOT/config/hva-conf.json.sample"
+
+if [[ -x "$HVA_ROOT/internals/sync-config.sh" ]]; then
+  "$HVA_ROOT/internals/sync-config.sh" --quiet
+fi
 
 if [[ -f "$HVA_CONFIG" ]]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "jq is required to read HVA_CONFIG: $HVA_CONFIG" >&2
-    exit 1
-  fi
-
-  unknown_keys="$(jq -r --slurpfile sample "$HVA_CONFIG_SAMPLE" '
-    ([keys_unsorted[]] - ($sample[0] | keys_unsorted))[]?
-  ' "$HVA_CONFIG")"
-  if [[ -n "$unknown_keys" ]]; then
-    echo "unknown keys in HVA config: $HVA_CONFIG" >&2
-    while IFS= read -r key; do
-      [[ -n "$key" ]] && echo "  $key" >&2
-    done <<< "$unknown_keys"
-    echo "Run: $HVA_ROOT/internals/sync-config.sh" >&2
     exit 1
   fi
 

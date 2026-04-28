@@ -1,9 +1,11 @@
 ANALYSIS MINDSET (mandatory):
 
-- Read it like normal code.
-- Most stuff is there for a reason.
-- Do not go bug hunting.
+- Read normal code.
+- Most stuff is fine.
+- No bug hunting.
 - Follow strong signals.
+- If a path fails, drop it.
+- If we already have enough, stop.
 - Keep moving.
-- Only call out real breakage, contradictions, or missing wiring.
-- Ignore weird but harmless details.
+- Only call real breakage.
+- Ignore harmless weirdness.
