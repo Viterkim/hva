@@ -7,6 +7,7 @@ import { enabledMcp, envFlag } from "./common.ts";
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const optionalSkillsBaseDir = join(baseDir, "..", "..", "skills", "auto", "mcp");
 const runtimeBaseDir = join(baseDir, "..", "..", "hva-runtime");
+const hvaStatePath = "/hva-state";
 
 const HVA_COMMAND_CHOICES = [
   { name: "hva-guidance-status", description: "show injected HVA runtime guidance" },
@@ -51,6 +52,17 @@ function activeSkillsBaseDir(): string {
 
 function gitMountEnabled(): boolean {
   return envFlag("HVA_MOUNT_GIT");
+}
+
+function buildPhaseSection(): string {
+  if (!envFlag("HVA_ENABLE_PHASES")) {
+    return "";
+  }
+  const phaseFile = join(hvaStatePath, "ACTIVE_PHASE.md");
+  if (!existsSync(phaseFile)) {
+    return "";
+  }
+  return `\n\nACTIVE PHASE (mandatory):\n${readFileSync(phaseFile, "utf-8").trim()}`;
 }
 
 function buildRuntimeSection(): string {
@@ -144,7 +156,7 @@ function buildCommandsList(): string {
 function buildInjection(): string {
   return `
 HVA RUNTIME (mandatory):
-${buildRuntimeSection()}
+${buildRuntimeSection()}${buildPhaseSection()}
 `;
 }
 
