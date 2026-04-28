@@ -427,6 +427,37 @@ if [[ "$MODE" == "daemon" ]]; then
   exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" daemon
 fi
 
+ensure_hva_state_writable() {
+  local check_file="$HVA_STATE_ROOT/.write-check"
+  local host_uid host_gid
+
+  mkdir -p "$HVA_STATE_ROOT" 2>/dev/null || true
+  if touch "$check_file" 2>/dev/null; then
+    rm -f "$check_file"
+    return
+  fi
+
+  if ! "${DOCKER[@]}" image inspect "$DEV_IMAGE" >/dev/null 2>&1; then
+    IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
+  fi
+
+  host_uid="$(id -u)"
+  host_gid="$(id -g)"
+  echo "repairing HVA state ownership..." >&2
+  "${DOCKER[@]}" run --rm \
+    -u root \
+    -v "$HVA_ROOT:/hva-host" \
+    "$DEV_IMAGE" \
+    bash -lc "mkdir -p /hva-host/.hva-state && chown -R $host_uid:$host_gid /hva-host/.hva-state"
+
+  mkdir -p "$HVA_STATE_ROOT"
+  if ! touch "$check_file" 2>/dev/null; then
+    echo "failed to repair writable HVA state: $HVA_STATE_ROOT" >&2
+    exit 1
+  fi
+  rm -f "$check_file"
+}
+
 cleanup() {
   if [[ "$PROMPT_FILE_TEMP" == "1" && -n "$PROMPT_HOST_FILE" && -f "$PROMPT_HOST_FILE" ]]; then
     rm -f "$PROMPT_HOST_FILE"
@@ -548,6 +579,10 @@ prepare_prompt_mode() {
   esac
 }
 
+if [[ "$HVA_MODE" != "local-pi" ]]; then
+  ensure_hva_state_writable
+fi
+
 prepare_prompt_mode
 
 source "$SCRIPT_DIR/../internals/docker-network.sh"
@@ -647,6 +682,10 @@ wait_for_llama_server() {
 
 ensure_dev_image() {
   IMAGE_NAME="$DEV_IMAGE" "$HVA_ROOT/internals/build-docker-prison.sh"
+}
+
+repair_hva_state_permissions() {
+  ensure_hva_state_writable
 }
 
 dev_container_is_reusable() {
@@ -1150,6 +1189,7 @@ if (( bash_reuse_running_container == 0 )); then
   if ! dev_container_is_reusable; then
     "${DOCKER[@]}" rm -f "$dev_name" >/dev/null 2>&1 || true
     ensure_dev_image
+    repair_hva_state_permissions
     ensure_dev_container
   fi
 fi

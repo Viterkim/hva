@@ -29,7 +29,7 @@
 - Model Page [Link](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF)
 - [Q4_K_M download (16.5 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q4_K_M.gguf)
 - [Q5_K_M download (19.2 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q5_K_M.gguf)
-- [Q6_K_M download (22.1 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q6_K_M.gguf)
+- [Q6_K_M download (22.1 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q6_K.gguf)
 - [Q8_0 download (28.6 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q8_0.gguf)
 
 ## Shell Completion
