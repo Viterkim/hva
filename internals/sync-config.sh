@@ -46,6 +46,9 @@ if [[ -f "$TARGET" ]]; then
   tmp="$(mktemp "${TARGET}.XXXXXX")"
   jq -S -s '.[0] * .[1]' "$SAMPLE" "$TARGET" > "$tmp"
   unknown_keys="$(unknown_target_keys "$TARGET")"
+  new_keys="$(jq -r --slurpfile target "$TARGET" '
+    ([keys_unsorted[]] - ($target[0] | keys_unsorted))[]?
+  ' "$SAMPLE")"
   if cmp -s "$tmp" "$TARGET"; then
     rm -f "$tmp"
     if [[ -n "$unknown_keys" ]]; then
@@ -61,6 +64,15 @@ if [[ -f "$TARGET" ]]; then
     exit 0
   fi
   mv "$tmp" "$TARGET"
+  if [[ -n "$new_keys" ]]; then
+    echo "inserted sample keys into config: $TARGET"
+    while IFS= read -r key; do
+      if [[ -n "$key" ]]; then
+        val="$(jq -r --arg k "$key" '.[$k]' "$SAMPLE")"
+        echo "  $key = $val"
+      fi
+    done <<< "$new_keys"
+  fi
   if [[ -n "$unknown_keys" ]]; then
     echo "updated config with missing sample keys: $TARGET" >&2
     echo "unknown keys in config: $TARGET" >&2
@@ -69,7 +81,6 @@ if [[ -f "$TARGET" ]]; then
     done <<< "$unknown_keys"
     exit 1
   fi
-  echo "updated config with missing sample keys: $TARGET"
   exit 0
 fi
 

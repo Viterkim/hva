@@ -1,11 +1,9 @@
 ---
 name: git-review
-description: "Use for explicit local diff review targets when git is available."
+description: "Use for local diff review targets when git is available."
 ---
 
 # Git Review
-
-Use this only when git is available in the session.
 
 Use it when the user wants review against `main`, another branch, a commit, staged changes, unstaged changes, or all local changes from inside the session.
 

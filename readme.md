@@ -1,7 +1,7 @@
 # Hva'? (hva) - Local LLM Vibe Coding Setup - Using 'Pi Coding Agent' + 'llama.cpp'
 
 - Local llama.cpp server (which runs the LLM) [Github Link](https://github.com/ggml-org/llama.cpp)
-- Pi coding agent in a dev container (yolo mode without the git folder(or enable it in your config)) [Github Link](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+- Pi coding agent in a dev container (yolo mode (disable git in your config)) [Github Link](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
 
 ## Quick start
 
@@ -53,7 +53,7 @@ ln -s /path/to/hva/completions/hva.fish ~/.config/fish/completions/hva.fish
 - `/use-skill` - pick a manual skill and insert the `/skill:...` call
 - `/git` - prepare a local git review diff and send it to the agent
 - `/skill:read-repo` - preview, ignore, and load a repo or subpath into context
-- `/skill:hva-review` - run the HVA repo review checklist
+- `/skill:hva-meta-code-review` - run the HVA repo review checklist
 - `/skill:hva-new-skill` - make or change HVA skills and extensions
 
 ## Commands

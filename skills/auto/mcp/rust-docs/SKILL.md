@@ -21,9 +21,9 @@ Use this for:
 - dependency trees
 - "what crate is this?"
 - "what version is current?"
-- after adding a crate / using it, ALWAYS check the docs for usage patterns
+- after adding a crate / updating it, ALWAYS check the docs for usage patterns
 
 Never guess Rust crate versions.
 
 ALWAYS lookup the docs on how to actually use the crate, never guess
-Don't assume the api is like a similar crate, looks at the examples
+Don't assume the api is like a similar crate, look at the docs/examples

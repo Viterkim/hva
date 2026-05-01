@@ -13,9 +13,10 @@ Usage:
   hva --bash                   shell into running dev container, or start one if needed
   hva --new                    start a fresh Pi session (clears resume state)
   hva --new-hard               start a fresh Pi session and recreate the dev container
-  hva --msg TEXT               one-shot Pi message
+  hva --msg TEXT               one-shot Pi message (saved into current session)
+  hva --question TEXT          one-shot terse question (saved into current session)
   hva --prompt TEXT            one-shot Pi prompt (alias for --msg)
-  hva --prompt-file FILE       one-shot Pi prompt from file
+  hva --prompt-file FILE       one-shot Pi prompt from file (saved into current session)
   hva --diff-review REV        review git diff from REV..HEAD
 
   hva --diff-review-branch BRANCH
@@ -52,6 +53,8 @@ EOF
 MODE="start"
 PROMPT_TEXT=""
 PROMPT_FILE=""
+PROMPT_KIND="msg"
+PROMPT_SYSTEM_TEXT=""
 DIFF_REVIEW_MODE=""
 DIFF_REVIEW_TARGET=""
 USE_LOCAL_PI=0
@@ -94,12 +97,21 @@ case "${1:-}" in
   --msg|--prompt)
     [[ $# -ge 2 ]] || { echo "$1 requires text" >&2; exit 1; }
     MODE="prompt"
+    PROMPT_KIND="msg"
+    PROMPT_TEXT="$2"
+    shift 2
+    ;;
+  --question)
+    [[ $# -ge 2 ]] || { echo "--question requires text" >&2; exit 1; }
+    MODE="prompt"
+    PROMPT_KIND="question"
     PROMPT_TEXT="$2"
     shift 2
     ;;
   --prompt-file)
     [[ $# -ge 2 ]] || { echo "--prompt-file requires a file path" >&2; exit 1; }
     MODE="prompt"
+    PROMPT_KIND="msg"
     PROMPT_FILE="$2"
     shift 2
     ;;
@@ -497,6 +509,28 @@ write_prompt_text_file() {
   printf '%s' "$text" > "$PROMPT_HOST_FILE"
 }
 
+question_system_prompt() {
+  cat <<EOF
+This is a quick question, not a coding task.
+
+Answer tersely and directly.
+Do not explain your reasoning.
+Do not inspect files or make changes unless the question explicitly asks for that.
+
+If the best answer is a single shell command, your entire response must be exactly two lines:
+The command is:
+<command>
+
+Do not use code fences for a single command.
+Do not add any extra text before or after the command response.
+If a short note is truly needed, use exactly this shape:
+The command is:
+<command>
+
+Note: <short note>
+EOF
+}
+
 validate_diff_review_size() {
   local label="$1"
   local diff_content="$2"
@@ -546,8 +580,7 @@ prepare_diff_review_prompt() {
   PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
   PROMPT_FILE_TEMP=1
   {
-    cat "$HVA_ROOT/hva-runtime/diff-review.md"
-    printf '\n\nReview target: %s\n\nDiff:\n' "$label"
+    printf 'Read the entire codebase first, then skim this diff normally. No bug hunting. Most changes are fine. Call out only real breakage. Ignore style. Do not make up issues just to say something. Review target: %s\n\nDiff:\n' "$label"
     printf '```diff\n'
     printf '%s\n' "$diff_content"
     printf '```\n'
@@ -568,6 +601,10 @@ prepare_prompt_mode() {
         cp "$(realpath "$PROMPT_FILE")" "$PROMPT_HOST_FILE"
       else
         write_prompt_text_file "$PROMPT_TEXT"
+      fi
+
+      if [[ "$PROMPT_KIND" == "question" ]]; then
+        PROMPT_SYSTEM_TEXT="$(question_system_prompt)"
       fi
       ;;
     diff-review)
@@ -890,6 +927,12 @@ run_local_pi() {
 
   # shellcheck disable=SC1091
   source "$HVA_ROOT/internals/pi-runtime.sh"
+
+  if [[ -n "$PROMPT_SYSTEM_TEXT" ]]; then
+    export HVA_PI_APPEND_SYSTEM_PROMPT="$PROMPT_SYSTEM_TEXT"
+  else
+    unset HVA_PI_APPEND_SYSTEM_PROMPT
+  fi
 
   cd "$WORKSPACE"
   if [[ -n "$PROMPT_HOST_FILE" ]]; then
@@ -1217,6 +1260,10 @@ exec_args=(
   "${stdio_args[@]}"
   -w "$container_workdir"
 )
+
+if [[ -n "$PROMPT_SYSTEM_TEXT" ]]; then
+  exec_args+=(-e "HVA_PI_APPEND_SYSTEM_PROMPT=$PROMPT_SYSTEM_TEXT")
+fi
 
 if (( bash_reuse_running_container == 0 )); then
   if ! dev_container_is_reusable; then

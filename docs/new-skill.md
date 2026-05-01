@@ -61,4 +61,4 @@ Wire it up in `internals/pi-runtime.sh` in `hva_pi_base_args` and add the file t
 
 ## Example
 
-`skills-hva/manual/hva-review/SKILL.md` has `disable-model-invocation: true` so it's invisible during normal sessions. Type `/skill:hva-review` when reviewing a PR to this repo.
+`skills-hva/manual/hva-meta-code-review/SKILL.md` has `disable-model-invocation: true` so it's invisible during normal sessions. Type `/skill:hva-meta-code-review` when reviewing a PR to this repo.

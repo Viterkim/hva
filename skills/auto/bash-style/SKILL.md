@@ -3,9 +3,7 @@ name: bash-style
 description: "Use for bash and shell."
 ---
 
-# Shell Safety
-
-## Basics
+# Basics
 
 - Always start with
 
