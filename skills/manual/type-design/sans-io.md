@@ -21,12 +21,14 @@ Event
 ## Core rules
 
 **Core:**
+
 - Always sync — never `async`
 - Takes `now: Instant` as a parameter — never calls `Instant::now()` internally
 - Returns `Vec<Action>` describing what should happen — does not do it
 - All logic lives here — state transitions, decisions, sequencing
 
 **Shell:**
+
 - Always async
 - Executes actions, no more, no less
 - Contains no logic and no state
@@ -47,9 +49,10 @@ fn handle(&mut self, now: Instant, event: Event) -> Vec<Action> {
 
 ```rust
 // With pubsub — only when broadcasting is needed
+// pub fields are acceptable here: Outcome is a pure Data Transfer Object (DTO) read directly by the shell
 struct Outcome<A, P> {
-    pub actions: Vec<A>,
-    pub publish: Vec<P>,
+    pub actions: Vec<A>,  // read and executed directly by the shell
+    pub publish: Vec<P>,  // broadcast directly by the shell
 }
 
 fn handle(&mut self, now: Instant, event: Event) -> Outcome<Action, Publish> {
@@ -122,6 +125,8 @@ The shell is async and logic-free — it is not unit tested. Integration tests o
 
 ## Splitting and composition
 
+**This section applies when redesigning an existing state machine that has become unwieldy.** When designing a new machine from scratch, start simple and let the shape grow naturally.
+
 A handful of `_ => vec![]` catch-alls is normal — do not split for purity alone. The real threshold is cognitive overload: a maintainer can no longer hold the state machine's full transition table in their head, or adding an unrelated feature requires touching the core. Premature splitting destroys the locality that makes the sans-IO pattern valuable.
 
 ### Phase 1 — Deepen the shape first
@@ -152,8 +157,8 @@ If the shape is already sound and the core is still unwieldy, split it. The spli
 
 **Matching symptoms to strategies:**
 
-*Catch-all abuse or meaningless events* — a core is forced to consume `Event::NetworkRestored` or `Event::Tick` even though 90% of its states don't care.
+_Catch-all abuse or meaningless events_ — a core is forced to consume `Event::NetworkRestored` or `Event::Tick` even though 90% of its states don't care.
 → **Orthogonal.** The shell routes; each core receives only its own events.
 
-*Action disjointness* — `handle()` can return both `Action::BlinkLed` and `Action::ProcessCreditCard`, spanning entirely separate bounded contexts.
+_Action disjointness_ — `handle()` can return both `Action::BlinkLed` and `Action::ProcessCreditCard`, spanning entirely separate bounded contexts.
 → **Apply the lifecycle heuristic.** If one context's lifecycle drives the other (e.g. hardware must initialise before billing is possible), use Hierarchical. If they are independent, use Orthogonal.

@@ -2,6 +2,52 @@
 
 Reference for the type-design session. These are the patterns to apply and the anti-patterns to call out.
 
+## Types in detail
+
+### Derives
+
+Add common derives during type-design: `Debug`, `Clone`, `PartialEq`, `Eq`, and `Hash` where they apply. `Hash` must accompany `Eq` for any type used as a map key. If a type must not be cloned freely, omit `Clone` intentionally and note why.
+
+### Visibility
+
+Decide visibility (`pub`, `pub(crate)`, or private) for every type and function as part of this session. Visibility is an interface decision, not an implementation detail.
+
+### Newtypes and conversion traits
+
+For newtypes, design the full interface here:
+
+- **Construction** — `From<Inner>` (infallible) or `TryFrom<Inner>` (validated). Define the domain error enum alongside `TryFrom`.
+- **Strict encapsulation** — the core operates on domain types, not primitives. No `.as_ref()`, `.into()`, or public inner access within the domain. Behaviour belongs on the type. Do not derive `AsRef`, `Deref`, or `Into` unless crossing a boundary.
+- **Explicit accessors** — `into_inner(self)` / `as_str(&self)` only where the type crosses an outer boundary (database, serialisation, third-party API). Their verbosity is intentional.
+- **`nutype`** — prefer it over manual `TryFrom` boilerplate when validation is required (bounds, length, regex).
+
+`Display`, `Serialize`, `Deserialize`, and similar are implementation details — leave them for TDD unless they are part of the public interface.
+
+### Traits
+
+Default to inherent methods (`impl Type`). Propose a trait only when one of the following is true:
+
+1. **Standard library integration** — parsing or validated construction via `FromStr`, `TryFrom`, etc.
+2. **Shell boundary** — the async shell needs to execute an action across interchangeable implementations (e.g., `HardwareGateway`, `EmailSender`).
+3. **Open-ended polymorphism** — multiple distinct types in the core need to be treated uniformly and an enum does not fit.
+
+If none of these apply, use a function or inherent method.
+
+### Error types
+
+Prefer `thiserror` for domain error enums unless the project already uses a different established error pattern. Design the domain-level failure variants here. TDD may add variants for external crate errors (`#[from]` attributes couple to implementation details and are decided at TDD time, not here).
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum AuthError {
+    #[error("token is expired")]
+    Expired,
+    #[error("token signature is invalid")]
+    InvalidSignature,
+    // TDD will add: #[from] variants for JWT library errors
+}
+```
+
 ## Newtypes
 
 Wrap raw primitives in named types at domain boundaries. Two reasons — both matter:
@@ -83,7 +129,9 @@ These are intentionally verbose. They act as highly visible, searchable signals 
 
 #### Use `nutype` for validated newtypes
 
-When a newtype requires validation (bounds, string length, regex), prefer the `nutype` crate over manual `TryFrom` boilerplate. It generates the standard conversion traits while strictly hiding the inner primitive — the type boundary cannot be bypassed.
+When a newtype requires **simple structural validation** (bounds, string length, regex), prefer the `nutype` crate over manual `TryFrom` boilerplate. It generates the standard conversion traits while strictly hiding the inner primitive — the type boundary cannot be bypassed.
+
+Use a manual `TryFrom` or `parse()` method when validation requires **external context** — for example, checking uniqueness against a database, or resolving against configuration that is not available at construction time.
 
 ```rust
 use nutype::nutype;
@@ -136,6 +184,25 @@ struct Config {
 }
 ```
 
+## No `#[derive(Default)]` on validated types
+
+Do not derive `Default` on validated newtypes, state machines, or any type where a zero/empty value would violate domain constraints.
+
+```rust
+// Anti-pattern: a zero UserId is not a valid domain object
+#[derive(Default)]
+struct UserId(i64);
+
+// Good: construction is the only entry point
+struct UserId(i64);
+impl TryFrom<i64> for UserId {
+    type Error = UserIdError;
+    fn try_from(id: i64) -> Result<Self, Self::Error> { todo!("reject non-positive ids") }
+}
+```
+
+`Default` is permitted on plain configuration structs or builder types where an empty/zero state is explicitly valid by domain definition.
+
 ## Parse at the boundary
 
 All input is parsed into typed domain objects as early as possible at the outermost boundary. Invalid data never travels inward. Types should make it impossible to hold unvalidated data — construction is validation.
@@ -144,10 +211,15 @@ All input is parsed into typed domain objects as early as possible at the outerm
 // Anti-pattern: validation separate from construction, caller must remember
 struct Email(String);
 
-// Good: construction enforces validity
-struct Email(String);
-impl Email {
-    fn parse(raw: &str) -> Result<Self, EmailError> { todo!() }
+// Good: construction enforces validity — use nutype (preferred) or TryFrom
+#[nutype(validate(regex = r"^[^@]+@[^@]+$"))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Email(String);
+
+// Or, when nutype is not appropriate:
+impl TryFrom<&str> for Email {
+    type Error = EmailError;
+    fn try_from(raw: &str) -> Result<Self, Self::Error> { todo!("validate email format") }
 }
 // An Email can only exist if it was valid — impossible to construct an invalid one
 ```
@@ -164,7 +236,7 @@ fn calculate_discount(cart: &Cart, rules: &DiscountRules) -> Discount { todo!() 
 async fn fetch_cart(id: CartId) -> Result<Cart, DbError> { todo!() }
 ```
 
-If a function is `async` it should not contain logic. If it contains logic it should not be `async`. If both are needed, split them: pure logic in a sync function, side effect in an async wrapper that calls it.
+If a function is `async` and contains logic, split them: pure logic in a sync function, an async shell that calls it. Orchestration functions are the exception — they compose other functions and may contain a top-level `if` or `match` to decide which side effect to invoke next, but no nested branching, loops, or domain logic.
 
 ## Logic and side effects separated
 
@@ -193,28 +265,7 @@ async fn process_order(id: OrderId) -> Result<(), Error> {  // orchestration onl
 
 ## Actions as data (sans-IO)
 
-For stateful systems, the core returns a description of what should happen — not the result of doing it. The shell executes the actions. Tests assert on the returned `Vec<Action>`, never on side effects.
-
-```rust
-// Anti-pattern: core performs side effects directly
-fn handle_event(&mut self, event: Event) {
-    send_email(...); // side effect inside core logic
-}
-
-// Good: core returns actions, shell executes them
-fn handle(&mut self, event: Event) -> Vec<Action> { todo!() }
-
-enum Action {
-    SendEmail { to: EmailAddress, subject: String },
-    StartTimer { id: TimerId, duration: Duration },
-}
-```
-
-Time is always passed in — the machine never calls `Instant::now()` internally:
-
-```rust
-fn handle(&mut self, now: Instant, event: Event) -> Vec<Action> { todo!() }
-```
+For stateful systems, the core returns descriptions of what should happen — not the result of doing it. The shell executes the actions. See [sans-io.md](sans-io.md) for shape, examples, and testing patterns.
 
 ## `Mutex` is a design smell
 
@@ -223,3 +274,12 @@ If you reach for `Mutex`, stop. It means ownership of that data was unclear at d
 ## Data plain, behaviour separate
 
 Structs hold data. Functions (or `impl` blocks with `&self` / `&mut self`) handle behaviour. No mixed-concern objects. `&mut` outside of `&mut self` is a warning sign — flag it on every occurrence, not only in cases of obvious shared state. Pure functions take values or shared refs and return new values.
+
+## Lifetime parameters
+
+Default to owned types. Reach for lifetime parameters only when:
+
+1. The type is a deliberate view into a longer-lived allocation (e.g., a parsed frame backed by a byte slice).
+2. Cloning the data would be measurably prohibitive and a borrow is architecturally sound.
+
+When lifetimes appear, document which allocation is being borrowed from. Use `Arc<T>` when ownership truly must be shared across tasks or components — not as a general substitute for borrowing.
