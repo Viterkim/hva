@@ -13,6 +13,7 @@ Usage:
   hva --bash                   shell into running dev container, or start one if needed
   hva --new                    start a fresh Pi session (clears resume state)
   hva --new-hard               start a fresh Pi session and recreate the dev container
+  hva --new-nuke-ws            fresh Pi session and wipe workspace state (sessions, lens cache, etc.)
   hva --msg TEXT               one-shot Pi message (saved into current session)
   hva --question TEXT          one-shot terse question (saved into current session)
   hva --prompt TEXT            one-shot Pi prompt (alias for --msg)
@@ -68,6 +69,11 @@ while [[ $# -gt 0 ]]; do
     --new-hard)
       HVA_NEW_SESSION=1
       HVA_NEW_HARD_SESSION=1
+      shift
+      ;;
+    --new-nuke-ws)
+      HVA_NEW_SESSION=1
+      HVA_NUKE_WS=1
       shift
       ;;
     --local|--host-pi)
@@ -215,7 +221,8 @@ if [[ "$MODE" == "bash" ]]; then
   HVA_WAIT_LLAMA="${HVA_WAIT_LLAMA:-0}"
 fi
 
-WORKSPACE="$PWD"
+resolved_cwd="$(pwd -P 2>/dev/null || pwd)"
+WORKSPACE="$resolved_cwd"
 if [[ $# -gt 0 && -d "$1" ]]; then
   WORKSPACE="$1"
   shift
@@ -256,6 +263,11 @@ fi
 LOOP_TASK_FILE="$WORKSPACE/tasks.md"
 LOOP_STATE_DIR="$HVA_STATE_ROOT/workspaces/$safe_workspace_name-$workspace_hash/loop"
 WORKSPACE_STATE_ROOT="$HVA_STATE_ROOT/workspaces/$safe_workspace_name-$workspace_hash"
+
+if [[ "${HVA_NUKE_WS:-0}" == "1" ]]; then
+  echo "nuking workspace state: $WORKSPACE_STATE_ROOT" >&2
+  rm -rf "$WORKSPACE_STATE_ROOT"
+fi
 
 create_loop_tasks_file() {
   local template="$HVA_ROOT/pi/tasks-template.md"
@@ -471,7 +483,7 @@ ensure_hva_state_writable() {
 }
 
 cleanup() {
-  if [[ "$PROMPT_FILE_TEMP" == "1" && -n "$PROMPT_HOST_FILE" && -f "$PROMPT_HOST_FILE" ]]; then
+  if [[ "${PROMPT_FILE_TEMP:-0}" == "1" && -n "${PROMPT_HOST_FILE:-}" && -f "${PROMPT_HOST_FILE:-}" ]]; then
     rm -f "$PROMPT_HOST_FILE"
   fi
 
@@ -485,8 +497,11 @@ cleanup() {
     remove_pi_lens_host_artifacts
   fi
 
-  # Remove any .pi-lens dirs written directly into the workspace during the session
-  # (dirs created at runtime won't have a volume mount, so pi-lens writes there directly)
+  # Remove any .pi-lens dirs written directly into the workspace during the session.
+  # WORKSPACE may be unset for early-exit modes (e.g. --stop), skip in that case.
+  if [[ -z "${WORKSPACE:-}" ]]; then
+    return
+  fi
   local _cleanup_lens_dir
   while IFS= read -r -d '' _cleanup_lens_dir; do
     if [[ -z "${_pi_lens_preexisting["$_cleanup_lens_dir"]+x}" ]]; then
@@ -580,7 +595,7 @@ prepare_diff_review_prompt() {
   PROMPT_HOST_FILE="$WORKSPACE_STATE_ROOT/hva-prompt-$$.txt"
   PROMPT_FILE_TEMP=1
   {
-    printf 'Read the entire codebase first, then skim this diff normally. No bug hunting. Most changes are fine. Call out only real breakage. Ignore style. Do not make up issues just to say something. Review target: %s\n\nDiff:\n' "$label"
+    printf 'Review target: %s\n\nDiff:\n' "$label"
     printf '```diff\n'
     printf '%s\n' "$diff_content"
     printf '```\n'
@@ -618,6 +633,20 @@ prepare_prompt_mode() {
 
 if [[ "$HVA_MODE" != "local-pi" ]]; then
   ensure_hva_state_writable
+fi
+
+# For prompt/diff-review: if the dev container is already running with a different workspace,
+# reroute WORKSPACE_STATE_ROOT so the prompt file lands at /hva-state inside that container.
+if [[ "$MODE" == "prompt" || "$MODE" == "diff-review" ]] && [[ "$HVA_MODE" != "local-pi" ]]; then
+  _running_ws="$("${DOCKER[@]}" inspect hva-dev --format '{{ index .Config.Labels "dev.hva.workspace" }}' 2>/dev/null || true)"
+  if [[ -n "$_running_ws" && "$_running_ws" != "$WORKSPACE" ]]; then
+    _running_base="$(basename "$_running_ws")"
+    _running_safe="$(printf '%s' "$_running_base" | tr -c 'A-Za-z0-9_.-' '-')"
+    _running_hash="$(printf '%s' "$_running_ws" | sha256sum | cut -c1-12)"
+    WORKSPACE_STATE_ROOT="$HVA_STATE_ROOT/workspaces/$_running_safe-$_running_hash"
+    mkdir -p "$WORKSPACE_STATE_ROOT"
+    echo "using running container workspace: $_running_ws" >&2
+  fi
 fi
 
 prepare_prompt_mode
@@ -785,6 +814,20 @@ running_dev_container_workspace() {
   fi
 
   "${DOCKER[@]}" inspect "$dev_name" --format '{{ index .Config.Labels "dev.hva.workspace" }}' 2>/dev/null
+}
+
+assert_dev_container_workspace_matches() {
+  local cws
+
+  cws="$(running_dev_container_workspace 2>/dev/null || true)"
+  [[ -z "$cws" ]] && return 0
+  if [[ "$cws" != "$WORKSPACE" ]]; then
+    echo "dev container workspace mismatch" >&2
+    echo "expected: $WORKSPACE" >&2
+    echo "actual:   $cws" >&2
+    echo "try: hva --stop && hva --new" >&2
+    exit 1
+  fi
 }
 
 ensure_dev_container() {
@@ -1123,6 +1166,11 @@ add_optional_container_env() {
 for env_name in \
   HVA_MCP_ENABLED \
   HVA_MCP_DISABLED \
+  HVA_EXTENSIONS_ENABLED \
+  HVA_EXTENSIONS_DISABLED \
+  HVA_SKIP_INJECT \
+  HVA_SOFT_INJECT_SKILLS \
+  HVA_HARD_INJECT_SKILLS \
   HVA_SKILLS_ENABLED \
   HVA_SKILLS_DISABLED \
   SEARXNG_URL \
@@ -1271,6 +1319,10 @@ if (( bash_reuse_running_container == 0 )); then
     repair_hva_state_permissions
     ensure_dev_container
   fi
+fi
+
+if [[ "$MODE" != "bash" || "$bash_reuse_running_container" == "0" ]]; then
+  assert_dev_container_workspace_matches
 fi
 
 remove_pi_lens_host_artifacts

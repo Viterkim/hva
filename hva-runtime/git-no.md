@@ -1,4 +1,4 @@
 GIT:
 
-- Git is not mounted.
-- Never use git commands here.
+- git folder is not mounted
+- never use git commands

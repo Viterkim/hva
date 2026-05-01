@@ -1,6 +1,6 @@
 ---
 name: bash-style
-description: "Use for bash and shell."
+description: "Shell script style and safety rules. Use when writing, editing, or reviewing bash or shell scripts."
 ---
 
 # Basics

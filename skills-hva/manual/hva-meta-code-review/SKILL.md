@@ -30,6 +30,11 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 - Must appear in either `HVA_SKILLS_ENABLED` or `HVA_SKILLS_DISABLED` in `config/hva-conf.json.sample` (validation rejects unknown entries).
 - If manual skill: does it need a `/skill:name` entry in `readme.md`?
 - If it references HVA-specific paths (`/hva`, `/hva-state`, `/workspace`), are those correct?
+- Does HVA's skill activation path still load it properly, not just catalog it?
+- If it is auto: does `activate_skill` expose it?
+- If it is in `HVA_SOFT_INJECT_SKILLS` or `HVA_HARD_INJECT_SKILLS`, is that intentional and still correct?
+- If it is injected, should it be soft instead of hard by default?
+- If it is hard injected, is there a tested reason and result for that?
 
 ## New MCP
 
@@ -37,6 +42,14 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 - In `KNOWN_MCP` in `pi/extensions/agent-guidance.ts`?
 - Wired up in `pi/extensions/mcp-tools.ts`?
 - Must appear in `HVA_MCP_ENABLED` or `HVA_MCP_DISABLED` in `config/hva-conf.json.sample`.
+
+## New optional extension
+
+- In `KNOWN_EXTENSION_KEYS` in `env-validate.sh`?
+- Must appear in `HVA_EXTENSIONS_ENABLED` or `HVA_EXTENSIONS_DISABLED` in `config/hva-conf.json.sample`.
+- Passed into the container in `scripts/hva`?
+- Gated in `internals/pi-runtime.sh`, not always loaded?
+- If it adds bundled skills too, are those gated with the extension?
 
 ## New mount or docker arg
 
@@ -50,6 +63,8 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 - Is the feature gated on its env var throughout — not just at startup?
 - Does disabling it actually skip the thing, not just skip the warning?
 - Does the config sample default match what a new user should get?
+- For CSV enable/disable lists: every known entry listed exactly once, never in both.
+- For skill injection: does `HVA_SKIP_INJECT=1` still override both soft and hard lists?
 
 ## Value flow — trace a new value end to end
 
@@ -61,3 +76,4 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 - New workspace writes (temp files, state dirs) cleaned up in `cleanup()` in `scripts/hva`?
 - `sync-config.sh` picks up new sample keys automatically — no changes needed there.
 - Docs (`readme.md`, `docs/`) only need updating for things a user would configure or invoke directly.
+- If skills changed, are `docs/skills-basics.md` and `docs/new-skill.md` still true?

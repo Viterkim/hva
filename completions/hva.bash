@@ -22,6 +22,7 @@ _hva_complete() {
     --bash
     --new
     --new-hard
+    --new-nuke-ws
     --msg
     --prompt
     --prompt-file

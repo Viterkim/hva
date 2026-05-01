@@ -50,6 +50,7 @@ ln -s /path/to/hva/completions/hva.fish ~/.config/fish/completions/hva.fish
 
 - `/list-cmds` - show HVA custom commands and blessed flows
 - `/list-skills` - show HVA skills by group
+- `/hva-debug [prompt]` - show HVA debug state, prompt matches, and final generated injection
 - `/use-skill` - pick a manual skill and insert the `/skill:...` call
 - `/git` - prepare a local git review diff and send it to the agent
 - `/skill:read-repo` - preview, ignore, and load a repo or subpath into context
@@ -116,5 +117,5 @@ hva --loop-status [WORKSPACE]
 
 ## Adding a skill
 
-- [docs/new-skill.md](docs/new-skill.md) - how to add a skill or extension. [docs/skill-basics.md](docs/skill-basics.md) for the mental model.
+- [docs/new-skill.md](docs/new-skill.md) - how to add a skill or extension. [docs/skills-basics.md](docs/skills-basics.md) for the mental model.
 - Try opening `hva` and calling `/skill:hva-new-skill help me make a new skill for ...`

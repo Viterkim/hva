@@ -11,6 +11,7 @@ ENV_CONFIG_KEYS=(
   LLAMA_REASONING_BUDGET
   LLAMA_NCMOE
   LLAMA_AUTOFIT_TOKENS
+  HVA_MAX_OUTPUT_TOKENS
   LLAMA_ENABLE_THINKING
   LLAMA_PRESERVE_THINKING
   LLAMA_TEMPERATURE
@@ -21,6 +22,11 @@ ENV_CONFIG_KEYS=(
   LLAMA_REPEAT_PENALTY
   HVA_MCP_ENABLED
   HVA_MCP_DISABLED
+  HVA_EXTENSIONS_ENABLED
+  HVA_EXTENSIONS_DISABLED
+  HVA_SKIP_INJECT
+  HVA_SOFT_INJECT_SKILLS
+  HVA_HARD_INJECT_SKILLS
   HVA_SKILLS_ENABLED
   HVA_SKILLS_DISABLED
   SEARXNG_URL
@@ -61,6 +67,7 @@ ENV_BOOLEAN_01_KEYS=(
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
   HVA_MOUNT_DOCKER_SOCKET
+  HVA_SKIP_INJECT
   HVA_UNSAFE
   LLAMA_ENABLE_THINKING
   LLAMA_PRESERVE_THINKING
@@ -71,6 +78,7 @@ ENV_UNSIGNED_INT_KEYS=(
   LLAMA_CONTEXT_SIZE
   LLAMA_NCMOE
   LLAMA_TOP_K
+  HVA_MAX_OUTPUT_TOKENS
 )
 
 ENV_NONNEG_NUMBER_KEYS=(
@@ -89,6 +97,10 @@ KNOWN_MCP_KEYS=(
   npm-search
   brave-search
   searxng
+)
+
+KNOWN_EXTENSION_KEYS=(
+  pi-lens
 )
 
 env_csv_contains() {
@@ -114,6 +126,22 @@ env_known_skill_keys() {
     while IFS= read -r -d '' skill_dir; do
       case "$skill_dir" in
         */auto/mcp|*/auto/mcp/*) continue ;;
+      esac
+      skill_name="$(basename "$skill_dir")"
+      [[ -n "$skill_name" ]] && printf '%s\n' "$skill_name"
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null)
+  done
+}
+
+env_known_auto_skill_keys() {
+  local root skill_dir skill_name
+  for root in "$HVA_ROOT/skills" "$HVA_ROOT/skills-hva"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r -d '' skill_dir; do
+      case "$skill_dir" in
+        */auto/mcp|*/auto/mcp/*) continue ;;
+        */auto/*) ;;
+        *) continue ;;
       esac
       skill_name="$(basename "$skill_dir")"
       [[ -n "$skill_name" ]] && printf '%s\n' "$skill_name"
@@ -190,10 +218,10 @@ env_require_non_negative_number() {
 
 env_validate_common() {
   local missing=0
-  local mcp_name skill_name
-  local combined_mcp seen_mcp
-  local seen_skills known_skills_output
-  local git_yes_enabled=0 git_no_enabled=0 git_review_enabled=0
+  local mcp_name extension_name skill_name
+  local combined_mcp combined_extensions seen_mcp seen_extensions
+  local seen_skills seen_injected known_skills_output known_auto_skills_output
+  local git_review_enabled=0
 
   env_require_present "${ENV_CONFIG_KEYS[@]}" || missing=1
   env_require_nonempty "${ENV_REQUIRED_NONEMPTY_KEYS[@]}" || missing=1
@@ -234,6 +262,11 @@ env_validate_common() {
       ;;
   esac
 
+  if [[ "${HVA_MAX_OUTPUT_TOKENS:-0}" == "0" ]]; then
+    echo "HVA_MAX_OUTPUT_TOKENS must be greater than 0: ${HVA_MAX_OUTPUT_TOKENS:-<unset>}" >&2
+    exit 1
+  fi
+
   if [[ ! -d "${LLAMA_MODELS:-}" ]]; then
     echo "LLAMA_MODELS directory does not exist: ${LLAMA_MODELS:-<unset>}" >&2
     exit 1
@@ -259,6 +292,30 @@ env_validate_common() {
   for mcp_name in "${KNOWN_MCP_KEYS[@]}"; do
     if [[ "$combined_mcp" != *",$mcp_name,"* ]]; then
       echo "MCP entry is not listed in enabled or disabled: $mcp_name" >&2
+      exit 1
+    fi
+  done
+
+  combined_extensions=",$HVA_EXTENSIONS_ENABLED,$HVA_EXTENSIONS_DISABLED,"
+  seen_extensions=","
+  IFS=',' read -r -a extension_values <<< "$HVA_EXTENSIONS_ENABLED,$HVA_EXTENSIONS_DISABLED"
+  for extension_name in "${extension_values[@]}"; do
+    [[ -z "$extension_name" ]] && continue
+    if [[ " ${KNOWN_EXTENSION_KEYS[*]} " != *" $extension_name "* ]]; then
+      echo "unknown extension entry in HVA config: $extension_name" >&2
+      echo "known extension entries: ${KNOWN_EXTENSION_KEYS[*]}" >&2
+      exit 1
+    fi
+    if [[ "$seen_extensions" == *",$extension_name,"* ]]; then
+      echo "extension entry listed more than once or in both enabled/disabled: $extension_name" >&2
+      exit 1
+    fi
+    seen_extensions+="$extension_name,"
+  done
+
+  for extension_name in "${KNOWN_EXTENSION_KEYS[@]}"; do
+    if [[ "$combined_extensions" != *",$extension_name,"* ]]; then
+      echo "extension entry is not listed in enabled or disabled: $extension_name" >&2
       exit 1
     fi
   done
@@ -289,35 +346,35 @@ env_validate_common() {
     fi
   done <<< "$known_skills_output"
 
-  if env_csv_contains "git-yes" "$HVA_SKILLS_ENABLED"; then
-    git_yes_enabled=1
-  fi
-  if env_csv_contains "git-no" "$HVA_SKILLS_ENABLED"; then
-    git_no_enabled=1
-  fi
+  known_auto_skills_output="$(env_known_auto_skill_keys)"
+  seen_injected=","
+  IFS=',' read -r -a inject_skill_values <<< "$HVA_SOFT_INJECT_SKILLS,$HVA_HARD_INJECT_SKILLS"
+  for skill_name in "${inject_skill_values[@]}"; do
+    [[ -z "$skill_name" ]] && continue
+    if ! grep -Fxq -- "$skill_name" <<< "$known_auto_skills_output"; then
+      echo "unknown auto skill entry in inject config: $skill_name" >&2
+      echo "known auto skill entries:" >&2
+      sed 's/^/  /' <<< "$known_auto_skills_output" >&2
+      exit 1
+    fi
+    if [[ "$seen_injected" == *",$skill_name,"* ]]; then
+      echo "inject skill entry listed more than once or in both soft/hard: $skill_name" >&2
+      exit 1
+    fi
+    if ! env_csv_contains "$skill_name" "$HVA_SKILLS_ENABLED"; then
+      echo "inject skill must also be enabled in HVA_SKILLS_ENABLED: $skill_name" >&2
+      exit 1
+    fi
+    seen_injected+="$skill_name,"
+  done
+
   if env_csv_contains "git-review" "$HVA_SKILLS_ENABLED"; then
     git_review_enabled=1
   fi
 
-  if (( git_yes_enabled == git_no_enabled )); then
-    echo "exactly one of git-yes or git-no must be enabled" >&2
+  if [[ "${HVA_MOUNT_GIT:-0}" != "1" && "$git_review_enabled" == "1" ]]; then
+    echo "git-review cannot be enabled when git is not mounted" >&2
     exit 1
-  fi
-
-  if [[ "${HVA_MOUNT_GIT:-0}" == "1" ]]; then
-    if (( git_yes_enabled != 1 || git_no_enabled != 0 )); then
-      echo "HVA_MOUNT_GIT=1 requires git-yes enabled and git-no disabled" >&2
-      exit 1
-    fi
-  else
-    if (( git_no_enabled != 1 || git_yes_enabled != 0 )); then
-      echo "HVA_MOUNT_GIT=0 requires git-no enabled and git-yes disabled" >&2
-      exit 1
-    fi
-    if (( git_review_enabled == 1 )); then
-      echo "git-review cannot be enabled when git is not mounted" >&2
-      exit 1
-    fi
   fi
 }
 
