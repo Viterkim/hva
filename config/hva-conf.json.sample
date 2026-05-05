@@ -11,7 +11,7 @@
   "SEARXNG_URL": "http://host.docker.internal:8888",
   "HVA_SOFT_INJECT_SKILLS": "bash-style,documentation,js-ts-style,python-style,review,git-review,rust-style",
   "HVA_HARD_INJECT_SKILLS": "",
-  "HVA_SKILLS_ENABLED": "bash-style,documentation,js-ts-style,python-style,review,planner,read-repo,hva-new-skill,hva-meta-code-review,git-review,rust-style",
+  "HVA_SKILLS_ENABLED": "bash-style,documentation,js-ts-style,python-style,review,planner,read-repo,hva-new-skill,hva-meta-code-review,git-review,rust-style,type-design,improve-codebase-architecture,to-prd,tdd,to-issues,grill-with-docs",
   "HVA_SKILLS_DISABLED": "",
   "LLAMA_MODEL_ALIAS": "local",
   "LLAMA_CONTAINER": "hva-llama-server",
