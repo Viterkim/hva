@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "0.70.5",
-    "pi-lens": "3.8.33",
+    "@mariozechner/pi-coding-agent": "0.73.0",
+    "pi-lens": "3.8.41",
     "typebox": "1.0.62"
   }
 }

@@ -14,6 +14,7 @@ ENV_CONFIG_KEYS=(
   HVA_MAX_OUTPUT_TOKENS
   LLAMA_ENABLE_THINKING
   LLAMA_PRESERVE_THINKING
+  LLAMA_CHAT_TEMPLATE_FILE
   LLAMA_TEMPERATURE
   LLAMA_TOP_P
   LLAMA_TOP_K
@@ -24,14 +25,20 @@ ENV_CONFIG_KEYS=(
   HVA_MCP_DISABLED
   HVA_EXTENSIONS_ENABLED
   HVA_EXTENSIONS_DISABLED
-  HVA_SKIP_INJECT
+  HVA_RUNTIME_PROMPT_MODE
+  HVA_SKIP_ALL_INJECTS
+  HVA_DUMP_SYSTEM_PROMPT
   HVA_SOFT_INJECT_SKILLS
   HVA_HARD_INJECT_SKILLS
-  HVA_SKILLS_ENABLED
-  HVA_SKILLS_DISABLED
+  HVA_DONT_INJECT_SKILLS
+  HVA_AUTO_SKILLS_ENABLED
+  HVA_AUTO_SKILLS_DISABLED
+  HVA_MANUAL_SKILLS_ENABLED
+  HVA_MANUAL_SKILLS_DISABLED
   SEARXNG_URL
   HVA_LOAD_SECRETS
   HVA_MOUNT_GIT
+  HVA_MOUNT_GIT_READONLY
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
@@ -54,6 +61,7 @@ ENV_REQUIRED_NONEMPTY_KEYS=(
   LLAMA_NCMOE
   HVA_LOAD_SECRETS
   HVA_MOUNT_GIT
+  HVA_MOUNT_GIT_READONLY
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
@@ -63,11 +71,12 @@ ENV_REQUIRED_NONEMPTY_KEYS=(
 ENV_BOOLEAN_01_KEYS=(
   HVA_LOAD_SECRETS
   HVA_MOUNT_GIT
+  HVA_MOUNT_GIT_READONLY
   HVA_MOUNT_GITCONFIG
   HVA_MOUNT_NVIM
   HVA_MOUNT_SSH
   HVA_MOUNT_DOCKER_SOCKET
-  HVA_SKIP_INJECT
+  HVA_SKIP_ALL_INJECTS
   HVA_UNSAFE
   LLAMA_ENABLE_THINKING
   LLAMA_PRESERVE_THINKING
@@ -119,20 +128,6 @@ env_csv_contains() {
   return 1
 }
 
-env_known_skill_keys() {
-  local root skill_dir skill_name
-  for root in "$HVA_ROOT/skills" "$HVA_ROOT/skills-hva"; do
-    [[ -d "$root" ]] || continue
-    while IFS= read -r -d '' skill_dir; do
-      case "$skill_dir" in
-        */auto/mcp|*/auto/mcp/*) continue ;;
-      esac
-      skill_name="$(basename "$skill_dir")"
-      [[ -n "$skill_name" ]] && printf '%s\n' "$skill_name"
-    done < <(find "$root" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null)
-  done
-}
-
 env_known_auto_skill_keys() {
   local root skill_dir skill_name
   for root in "$HVA_ROOT/skills" "$HVA_ROOT/skills-hva"; do
@@ -141,6 +136,21 @@ env_known_auto_skill_keys() {
       case "$skill_dir" in
         */auto/mcp|*/auto/mcp/*) continue ;;
         */auto/*) ;;
+        *) continue ;;
+      esac
+      skill_name="$(basename "$skill_dir")"
+      [[ -n "$skill_name" ]] && printf '%s\n' "$skill_name"
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null)
+  done
+}
+
+env_known_manual_skill_keys() {
+  local root skill_dir skill_name
+  for root in "$HVA_ROOT/skills" "$HVA_ROOT/skills-hva"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r -d '' skill_dir; do
+      case "$skill_dir" in
+        */manual/*) ;;
         *) continue ;;
       esac
       skill_name="$(basename "$skill_dir")"
@@ -220,7 +230,7 @@ env_validate_common() {
   local missing=0
   local mcp_name extension_name skill_name
   local combined_mcp combined_extensions seen_mcp seen_extensions
-  local seen_skills seen_injected known_skills_output known_auto_skills_output
+  local seen_skills seen_injected known_auto_skills_output known_manual_skills_output
   local git_review_enabled=0
 
   env_require_present "${ENV_CONFIG_KEYS[@]}" || missing=1
@@ -238,10 +248,26 @@ env_validate_common() {
     *) echo "HVA_CSHARP must be true or false: ${HVA_CSHARP:-<unset>}" >&2; exit 1 ;;
   esac
 
+  case "${HVA_RUNTIME_PROMPT_MODE:-}" in
+    normal|none|nudge|force) ;;
+    *) echo "HVA_RUNTIME_PROMPT_MODE must be normal, none, nudge, or force: ${HVA_RUNTIME_PROMPT_MODE:-<unset>}" >&2; exit 1 ;;
+  esac
+
   case "${LLAMA_GPU_VENDOR:-}" in
     auto|nvidia|amd|intel|none|cpu) ;;
     *) echo "LLAMA_GPU_VENDOR must be auto, nvidia, amd, intel, none, or cpu: ${LLAMA_GPU_VENDOR:-<unset>}" >&2; exit 1 ;;
   esac
+
+  if [[ -n "${LLAMA_CHAT_TEMPLATE_FILE:-}" ]]; then
+    if [[ "$LLAMA_CHAT_TEMPLATE_FILE" == /* || "$LLAMA_CHAT_TEMPLATE_FILE" == *..* || "$LLAMA_CHAT_TEMPLATE_FILE" == */* ]]; then
+      echo "LLAMA_CHAT_TEMPLATE_FILE must be empty or a file name under internals/: $LLAMA_CHAT_TEMPLATE_FILE" >&2
+      exit 1
+    fi
+    if [[ ! -f "$HVA_ROOT/internals/$LLAMA_CHAT_TEMPLATE_FILE" ]]; then
+      echo "LLAMA_CHAT_TEMPLATE_FILE does not exist under internals/: $LLAMA_CHAT_TEMPLATE_FILE" >&2
+      exit 1
+    fi
+  fi
 
   env_require_unsigned_int "${ENV_UNSIGNED_INT_KEYS[@]}"
   env_require_non_negative_number "${ENV_NONNEG_NUMBER_KEYS[@]}"
@@ -320,19 +346,19 @@ env_validate_common() {
     fi
   done
 
-  known_skills_output="$(env_known_skill_keys)"
+  known_auto_skills_output="$(env_known_auto_skill_keys)"
   seen_skills=","
-  IFS=',' read -r -a skill_values <<< "$HVA_SKILLS_ENABLED,$HVA_SKILLS_DISABLED"
+  IFS=',' read -r -a skill_values <<< "$HVA_AUTO_SKILLS_ENABLED,$HVA_AUTO_SKILLS_DISABLED"
   for skill_name in "${skill_values[@]}"; do
     [[ -z "$skill_name" ]] && continue
-    if ! grep -Fxq -- "$skill_name" <<< "$known_skills_output"; then
-      echo "unknown skill entry in HVA config: $skill_name" >&2
-      echo "known skill entries:" >&2
-      sed 's/^/  /' <<< "$known_skills_output" >&2
+    if ! grep -Fxq -- "$skill_name" <<< "$known_auto_skills_output"; then
+      echo "unknown auto skill entry in HVA config: $skill_name" >&2
+      echo "known auto skill entries:" >&2
+      sed 's/^/  /' <<< "$known_auto_skills_output" >&2
       exit 1
     fi
     if [[ "$seen_skills" == *",$skill_name,"* ]]; then
-      echo "skill entry listed more than once or in both enabled/disabled: $skill_name" >&2
+      echo "auto skill entry listed more than once or in both enabled/disabled: $skill_name" >&2
       exit 1
     fi
     seen_skills+="$skill_name,"
@@ -341,14 +367,39 @@ env_validate_common() {
   while IFS= read -r skill_name; do
     [[ -z "$skill_name" ]] && continue
     if [[ "$seen_skills" != *",$skill_name,"* ]]; then
-      echo "skill entry is not listed in enabled or disabled: $skill_name" >&2
+      echo "auto skill entry is not listed in enabled or disabled: $skill_name" >&2
       exit 1
     fi
-  done <<< "$known_skills_output"
+  done <<< "$known_auto_skills_output"
 
-  known_auto_skills_output="$(env_known_auto_skill_keys)"
+  known_manual_skills_output="$(env_known_manual_skill_keys)"
+  seen_skills=","
+  IFS=',' read -r -a skill_values <<< "$HVA_MANUAL_SKILLS_ENABLED,$HVA_MANUAL_SKILLS_DISABLED"
+  for skill_name in "${skill_values[@]}"; do
+    [[ -z "$skill_name" ]] && continue
+    if ! grep -Fxq -- "$skill_name" <<< "$known_manual_skills_output"; then
+      echo "unknown manual skill entry in HVA config: $skill_name" >&2
+      echo "known manual skill entries:" >&2
+      sed 's/^/  /' <<< "$known_manual_skills_output" >&2
+      exit 1
+    fi
+    if [[ "$seen_skills" == *",$skill_name,"* ]]; then
+      echo "manual skill entry listed more than once or in both enabled/disabled: $skill_name" >&2
+      exit 1
+    fi
+    seen_skills+="$skill_name,"
+  done
+
+  while IFS= read -r skill_name; do
+    [[ -z "$skill_name" ]] && continue
+    if [[ "$seen_skills" != *",$skill_name,"* ]]; then
+      echo "manual skill entry is not listed in enabled or disabled: $skill_name" >&2
+      exit 1
+    fi
+  done <<< "$known_manual_skills_output"
+
   seen_injected=","
-  IFS=',' read -r -a inject_skill_values <<< "$HVA_SOFT_INJECT_SKILLS,$HVA_HARD_INJECT_SKILLS"
+  IFS=',' read -r -a inject_skill_values <<< "$HVA_SOFT_INJECT_SKILLS,$HVA_HARD_INJECT_SKILLS,$HVA_DONT_INJECT_SKILLS"
   for skill_name in "${inject_skill_values[@]}"; do
     [[ -z "$skill_name" ]] && continue
     if ! grep -Fxq -- "$skill_name" <<< "$known_auto_skills_output"; then
@@ -358,22 +409,36 @@ env_validate_common() {
       exit 1
     fi
     if [[ "$seen_injected" == *",$skill_name,"* ]]; then
-      echo "inject skill entry listed more than once or in both soft/hard: $skill_name" >&2
+      echo "inject skill entry listed more than once across soft, hard, and dont-inject: $skill_name" >&2
       exit 1
     fi
-    if ! env_csv_contains "$skill_name" "$HVA_SKILLS_ENABLED"; then
-      echo "inject skill must also be enabled in HVA_SKILLS_ENABLED: $skill_name" >&2
+    if { env_csv_contains "$skill_name" "$HVA_SOFT_INJECT_SKILLS" || env_csv_contains "$skill_name" "$HVA_HARD_INJECT_SKILLS"; } &&
+      ! env_csv_contains "$skill_name" "$HVA_AUTO_SKILLS_ENABLED"; then
+      echo "inject skill must also be enabled in HVA_AUTO_SKILLS_ENABLED: $skill_name" >&2
       exit 1
     fi
     seen_injected+="$skill_name,"
   done
 
-  if env_csv_contains "git-review" "$HVA_SKILLS_ENABLED"; then
+  while IFS= read -r skill_name; do
+    [[ -z "$skill_name" ]] && continue
+    if [[ "$seen_injected" != *",$skill_name,"* ]]; then
+      echo "auto skill is not listed in soft, hard, or dont-inject config: $skill_name" >&2
+      exit 1
+    fi
+  done <<< "$known_auto_skills_output"
+
+  if env_csv_contains "git-review" "$HVA_AUTO_SKILLS_ENABLED"; then
     git_review_enabled=1
   fi
 
   if [[ "${HVA_MOUNT_GIT:-0}" != "1" && "$git_review_enabled" == "1" ]]; then
     echo "git-review cannot be enabled when git is not mounted" >&2
+    exit 1
+  fi
+
+  if [[ "${HVA_MOUNT_GIT_READONLY:-0}" == "1" && "${HVA_MOUNT_GIT:-0}" != "1" ]]; then
+    echo "HVA_MOUNT_GIT_READONLY=1 requires HVA_MOUNT_GIT=1" >&2
     exit 1
   fi
 }

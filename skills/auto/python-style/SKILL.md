@@ -5,6 +5,7 @@ description: "Python coding style rules. Use when creating, editing, or working 
 
 # Basics
 
+- no inline comments
 - follow the repo's existing formatter, linter, and test runner
 - do not guess package versions or APIs. use pypi when needed
 - prefer the repo's existing patterns over generic rewrites

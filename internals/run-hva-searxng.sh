@@ -67,9 +67,15 @@ container_id() {
   "${DOCKER[@]}" ps -aq --filter "name=^/$SEARXNG_CONTAINER$"
 }
 
-create_container() {
+run_container() {
   local network_mode="$1"
-  local -a docker_args=(--name "$SEARXNG_CONTAINER")
+  local -a docker_args=(
+    -d
+    --rm
+    --name "$SEARXNG_CONTAINER"
+    --label "dev.hva.managed=1"
+    --label "dev.hva.kind=searxng"
+  )
 
   if [[ "$network_mode" == "host" ]]; then
     docker_args+=(
@@ -92,7 +98,7 @@ create_container() {
     --entrypoint sh
   )
 
-  "${DOCKER[@]}" create "${docker_args[@]}" "$SEARXNG_IMAGE" -lc '
+  "${DOCKER[@]}" run "${docker_args[@]}" "$SEARXNG_IMAGE" -lc '
 cp /hva-searxng/settings.yml /etc/searxng/settings.yml
 cp /hva-searxng/limiter.toml /etc/searxng/limiter.toml
 exec /usr/local/searxng/entrypoint.sh
@@ -108,11 +114,10 @@ case "$ACTION" in
     fi
     existing_id="$(container_id)"
     if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$SEARXNG_CONTAINER" >/dev/null 2>&1 || true
+      "${DOCKER[@]}" rm -f "$SEARXNG_CONTAINER" >/dev/null 2>&1 || true
     fi
     echo "starting searxng: $SEARXNG_CONTAINER on port $SEARXNG_HOST_PORT via network $NETWORK_MODE"
-    create_container "$NETWORK_MODE"
-    if ! "${DOCKER[@]}" start "$SEARXNG_CONTAINER" >/dev/null; then
+    if ! run_container "$NETWORK_MODE"; then
       "${DOCKER[@]}" rm -f "$SEARXNG_CONTAINER" >/dev/null 2>&1 || true
       exit 1
     fi
@@ -125,7 +130,7 @@ case "$ACTION" in
     fi
     existing_id="$(container_id)"
     if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$SEARXNG_CONTAINER" >/dev/null 2>&1 || true
+      "${DOCKER[@]}" rm -f "$SEARXNG_CONTAINER" >/dev/null 2>&1 || true
     fi
     ;;
   status)

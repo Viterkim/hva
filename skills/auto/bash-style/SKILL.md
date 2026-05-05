@@ -5,6 +5,7 @@ description: "Shell script style and safety rules. Use when writing, editing, or
 
 # Basics
 
+- no inline comments
 - Always start with
 
 ```bash

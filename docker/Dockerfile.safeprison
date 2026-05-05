@@ -1,4 +1,4 @@
-ARG HVA_V_UBUNTU_BASE_IMAGE=ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97bef9450d0b4
+ARG HVA_V_UBUNTU_BASE_IMAGE=ubuntu:26.04@sha256:f3d28607ddd78734bb7f71f117f3c6706c666b8b76cbff7c9ff6e5718d46ff64
 FROM ${HVA_V_UBUNTU_BASE_IMAGE}
 
 ARG USERNAME
@@ -232,8 +232,9 @@ RUN --mount=type=cache,id=hva-go-pkg-v2,mode=0777,uid=${USER_UID},gid=${USER_GID
     && lazydocker --version
 
 ARG HVA_V_UV_VERSION
-RUN curl -LsSf "https://astral.sh/uv/${HVA_V_UV_VERSION}/install.sh" | sh \
-    && uv --version
+RUN curl -LsSf "https://astral.sh/uv/install.sh" | sh \
+    && uv --version \
+    && test "$(uv --version | awk '{ print $2 }')" = "${HVA_V_UV_VERSION}"
 
 ARG HVA_V_RUFF_VERSION
 ARG HVA_V_MYPY_VERSION

@@ -55,22 +55,47 @@ source "$SCRIPT_DIR/docker.sh"
 source "$SCRIPT_DIR/docker-network.sh"
 source "$SCRIPT_DIR/../docker/versions.env"
 
+running_container_id() {
+  "${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$"
+}
+
+container_id() {
+  "${DOCKER[@]}" ps -aq --filter "name=^/$LLAMA_CONTAINER$"
+}
+
+wait_container_gone() {
+  local attempts=100
+  while ((attempts > 0)); do
+    if [[ -z "$(container_id)" ]]; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 0.2
+  done
+  echo "container did not go away after remove: $LLAMA_CONTAINER" >&2
+  return 1
+}
+
+remove_container() {
+  if [[ -n "$(running_container_id)" ]]; then
+    echo "stopping llama server: $LLAMA_CONTAINER"
+    "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
+  else
+    echo "llama server is not running: $LLAMA_CONTAINER"
+  fi
+  if [[ -n "$(container_id)" ]]; then
+    "${DOCKER[@]}" rm -f "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
+    wait_container_gone
+  fi
+}
+
 case "$ACTION" in
   stop)
-    if [[ -n "$("${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$")" ]]; then
-      echo "stopping llama server: $LLAMA_CONTAINER"
-      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    else
-      echo "llama server is not running: $LLAMA_CONTAINER"
-    fi
-    existing_id="$("${DOCKER[@]}" ps -aq --filter "name=^/$LLAMA_CONTAINER$")"
-    if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    fi
+    remove_container
     exit 0
     ;;
   status)
-    if [[ -n "$("${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$")" ]]; then
+    if [[ -n "$(running_container_id)" ]]; then
       "${DOCKER[@]}" ps --filter "name=^/$LLAMA_CONTAINER$"
     else
       echo "llama server is not running: $LLAMA_CONTAINER"
@@ -133,10 +158,6 @@ fi
 
 env_validate_common
 
-running_container_id() {
-  "${DOCKER[@]}" ps -q --filter "name=^/$LLAMA_CONTAINER$"
-}
-
 detect_gpu_vendor() {
   if [[ "${LLAMA_GPU_VENDOR:-auto}" != "auto" ]]; then
     printf '%s\n' "${LLAMA_GPU_VENDOR:-}"
@@ -175,22 +196,9 @@ host_platform_arch() {
   esac
 }
 
-container_id() {
-  "${DOCKER[@]}" ps -aq --filter "name=^/$LLAMA_CONTAINER$"
-}
-
 case "$ACTION" in
   stop)
-    if [[ -n "$(running_container_id)" ]]; then
-      echo "stopping llama server: $LLAMA_CONTAINER"
-      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    else
-      echo "llama server is not running: $LLAMA_CONTAINER"
-    fi
-    existing_id="$(container_id)"
-    if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    fi
+    remove_container
     exit 0
     ;;
   status)
@@ -211,23 +219,13 @@ case "$ACTION" in
       echo "llama server already running: $LLAMA_CONTAINER"
       exit 0
     fi
-    existing_id="$(container_id)"
-    if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
+    if [[ -n "$(container_id)" ]]; then
+      remove_container
     fi
     ;;
   restart)
     LLAMA_DAEMON=1
-    if [[ -n "$(running_container_id)" ]]; then
-      echo "restarting llama server: $LLAMA_CONTAINER"
-      "${DOCKER[@]}" stop "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    else
-      echo "llama server is not running: $LLAMA_CONTAINER"
-    fi
-    existing_id="$(container_id)"
-    if [[ -n "$existing_id" ]]; then
-      "${DOCKER[@]}" rm "$LLAMA_CONTAINER" >/dev/null 2>&1 || true
-    fi
+    remove_container
     ;;
 esac
 
@@ -256,9 +254,25 @@ if [[ "${LLAMA_PRESERVE_THINKING:-0}" == "1" ]]; then
   llama_chat_template_args=(--chat-template-kwargs '{"preserve_thinking": true}')
 fi
 
+llama_chat_template_file_args=()
+if [[ -n "${LLAMA_CHAT_TEMPLATE_FILE:-}" ]]; then
+  if [[ "$LLAMA_CHAT_TEMPLATE_FILE" == /* || "$LLAMA_CHAT_TEMPLATE_FILE" == *..* || "$LLAMA_CHAT_TEMPLATE_FILE" == */* ]]; then
+    echo "LLAMA_CHAT_TEMPLATE_FILE must be a file name under internals/: $LLAMA_CHAT_TEMPLATE_FILE" >&2
+    exit 1
+  fi
+  if [[ ! -f "$SCRIPT_DIR/$LLAMA_CHAT_TEMPLATE_FILE" ]]; then
+    echo "LLAMA_CHAT_TEMPLATE_FILE does not exist under internals/: $LLAMA_CHAT_TEMPLATE_FILE" >&2
+    exit 1
+  fi
+  llama_chat_template_file_args=(--chat-template-file "/hva-internals/$LLAMA_CHAT_TEMPLATE_FILE")
+fi
+
 docker_args=(
   --rm
+  --label "dev.hva.managed=1"
+  --label "dev.hva.kind=llama"
   -v "$LLAMA_MODELS:/models:ro"
+  -v "$SCRIPT_DIR:/hva-internals:ro"
 )
 
 gpu_vendor="$(detect_gpu_vendor)"
@@ -324,6 +338,7 @@ run_llama() {
     -ctk q8_0 \
     -ctv q8_0 \
     --jinja \
+    "${llama_chat_template_file_args[@]}" \
     "${llama_chat_template_args[@]}" \
     "${llama_reasoning_args[@]}" \
     --metrics \

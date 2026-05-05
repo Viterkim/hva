@@ -43,6 +43,7 @@ Usage:
   hva --llama-cpp-logs-full    print full llama server container logs
   hva --build-docker-prison    build dev image if missing/outdated (--force to rebuild anyway)
   hva --check-versions         check pinned vs latest upstream versions
+  hva --check-system-prompt    run repeated skill-injection prompt checks
   hva --loop [WORKSPACE]       run Pi loop mode using WORKSPACE/tasks.md
   hva --loop-init [WORKSPACE]  create a tasks.md template in workspace root
   hva --loop-stop [WORKSPACE]  ask a running loop to stop after this iteration
@@ -159,6 +160,7 @@ case "${1:-}" in
   --llama-cpp-update) exec "$HVA_ROOT/internals/llama-cpp-update.sh" "${@:2}" ;;
   --build-docker-prison) exec "$HVA_ROOT/internals/build-docker-prison.sh" "${@:2}" ;;
   --check-versions) exec "$HVA_ROOT/internals/check-versions.sh" "${@:2}" ;;
+  --check-system-prompt) exec "$HVA_ROOT/internals/test/check-system-prompt.sh" "${@:2}" ;;
   --llama-cpp-logs-full) exec "$HVA_ROOT/internals/run-hva-llama-cpp.sh" logs ;;
   -h|--help|help) usage; exit 0 ;;
   --*)
@@ -194,7 +196,10 @@ case "$MODE" in
     source "$SCRIPT_DIR/../internals/docker.sh"
     "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
     "$HVA_ROOT/internals/run-hva-searxng.sh" stop
-    "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
+    while IFS= read -r id; do
+      [[ -n "$id" ]] && "${DOCKER[@]}" rm -f "$id" >/dev/null 2>&1 || true
+    done < <("${DOCKER[@]}" ps -aq --filter "label=dev.hva.managed=1")
+    "${DOCKER[@]}" rm -f hva-dev hva-llama-server hva-searxng >/dev/null 2>&1 || true
     exit 0
     ;;
   start-searxng)
@@ -381,13 +386,6 @@ esac
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../internals/docker.sh"
 
-if [[ "$MODE" == "stop" ]]; then
-  "$HVA_ROOT/internals/run-hva-llama-cpp.sh" stop
-  "$HVA_ROOT/internals/run-hva-searxng.sh" stop
-  "${DOCKER[@]}" rm -f hva-dev >/dev/null 2>&1 || true
-  exit 0
-fi
-
 if [[ "$MODE" == "start-searxng" ]]; then
   exec "$HVA_ROOT/internals/run-hva-searxng.sh" start
 fi
@@ -399,7 +397,64 @@ fi
 # shellcheck disable=SC1091
 source "$HVA_ROOT/internals/load-config.sh"
 mkdir -p "$LLAMA_MODELS"
-env_validate_required
+
+download_recommended_model_if_models_empty() {
+  local recommendation_file="$HVA_ROOT/internals/recommended-model.txt"
+  local model_url download_url model_file tmp_file
+
+  if [[ -n "${LLAMA_MODEL:-}" ]]; then
+    return
+  fi
+
+  if [[ ! -f "$recommendation_file" ]]; then
+    echo "recommended model file missing: $recommendation_file" >&2
+    exit 1
+  fi
+
+  model_url="$(sed -n 's/^[[:space:]]*//;s/[[:space:]]*$//;/^$/d;/^#/d;p;q' "$recommendation_file")"
+  if [[ -z "$model_url" ]]; then
+    echo "recommended model file has no URL: $recommendation_file" >&2
+    exit 1
+  fi
+
+  download_url="$model_url"
+  if [[ "$download_url" == https://huggingface.co/*/blob/* ]]; then
+    download_url="${download_url/\/blob\//\/resolve\/}"
+  fi
+
+  model_file="$(basename "${download_url%%\?*}")"
+  if [[ "$model_file" != *.gguf ]]; then
+    echo "recommended model URL does not point to a .gguf file: $model_url" >&2
+    exit 1
+  fi
+
+  tmp_file="$LLAMA_MODELS/.${model_file}.download"
+  rm -f "$tmp_file"
+
+  if find "$LLAMA_MODELS" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    return
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required to download the recommended model" >&2
+    exit 1
+  fi
+
+  echo "LLAMA_MODELS is empty; downloading recommended model:" >&2
+  echo "  $model_url" >&2
+  if ! curl -fL --progress-bar "$download_url" -o "$tmp_file"; then
+    rm -f "$tmp_file"
+    echo "failed to download recommended model: $model_url" >&2
+    exit 1
+  fi
+  mv "$tmp_file" "$LLAMA_MODELS/$model_file"
+  LLAMA_MODEL="$model_file"
+  export LLAMA_MODEL
+}
+
+env_validate_common
+download_recommended_model_if_models_empty
+env_validate_model
 hva_load_secrets
 hva_normalize_github_tokens
 
@@ -852,6 +907,9 @@ ensure_dev_container() {
   if ! "${DOCKER[@]}" ps -q --filter "name=^${dev_name}$" | grep -q .; then
     "${DOCKER[@]}" run -d \
       --name "$dev_name" \
+      --rm \
+      --label "dev.hva.managed=1" \
+      --label "dev.hva.kind=dev" \
       --label "dev.hva.workspace=$WORKSPACE" \
       "${start_docker_args[@]}" \
       "$DEV_IMAGE" sleep infinity >/dev/null
@@ -1168,14 +1226,21 @@ for env_name in \
   HVA_MCP_DISABLED \
   HVA_EXTENSIONS_ENABLED \
   HVA_EXTENSIONS_DISABLED \
-  HVA_SKIP_INJECT \
+  HVA_RUNTIME_PROMPT_MODE \
+  HVA_SKIP_ALL_INJECTS \
   HVA_SOFT_INJECT_SKILLS \
   HVA_HARD_INJECT_SKILLS \
-  HVA_SKILLS_ENABLED \
-  HVA_SKILLS_DISABLED \
+  HVA_DONT_INJECT_SKILLS \
+  HVA_AUTO_SKILLS_ENABLED \
+  HVA_AUTO_SKILLS_DISABLED \
+  HVA_MANUAL_SKILLS_ENABLED \
+  HVA_MANUAL_SKILLS_DISABLED \
+  HVA_DUMP_SYSTEM_PROMPT \
   SEARXNG_URL \
   HVA_MOUNT_GIT \
-  LLAMA_CONTEXT_SIZE; do
+  HVA_MOUNT_GIT_READONLY \
+  LLAMA_CONTEXT_SIZE \
+  LLAMA_CHAT_TEMPLATE_FILE; do
   add_required_container_env "$env_name"
 done
 
@@ -1228,6 +1293,16 @@ if [[ "${HVA_MOUNT_GIT:-0}" != "1" ]]; then
       start_docker_args+=(--tmpfs "$dest:rw,noexec,nosuid,nodev,size=64k")
     elif [[ -f "$git_path" ]]; then
       start_docker_args+=(--mount "type=bind,source=$GIT_FILE_MASK,target=$dest,readonly")
+    fi
+  done < <(find "$WORKSPACE" -name .git -prune -print0 2>/dev/null)
+fi
+
+if [[ "${HVA_MOUNT_GIT:-0}" == "1" && "${HVA_MOUNT_GIT_READONLY:-0}" == "1" ]]; then
+  while IFS= read -r -d '' git_path; do
+    rel_path="${git_path#"$WORKSPACE"/}"
+    dest="/workspace/$rel_path"
+    if [[ -d "$git_path" ]]; then
+      start_docker_args+=(-v "$git_path:$dest:ro")
     fi
   done < <(find "$WORKSPACE" -name .git -prune -print0 2>/dev/null)
 fi
