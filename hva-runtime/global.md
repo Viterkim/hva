@@ -1,0 +1,3 @@
+- before you decide, plan, write, or create anything, you must use a real tool first. do not act from memory, defaults, guesses, or prior knowledge
+- if a task matches a skill, you must load that skill with `read` or another real tool before you continue. if you did not load the skill, you are not allowed to continue
+- never create files, code, folders, or project layouts until tool output proves what to do. if no tool was used first, stop and use one

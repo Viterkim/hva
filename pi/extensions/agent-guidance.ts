@@ -81,14 +81,25 @@ function gitMountEnabled(): boolean {
   return envFlag("HVA_MOUNT_GIT");
 }
 
+function gitMountReadonly(): boolean {
+  return envFlag("HVA_MOUNT_GIT_READONLY");
+}
+
+function buildGitLine(): string {
+  if (!gitMountEnabled()) {
+    return "GIT: git folder is not mounted. do not use git commands.";
+  }
+  if (gitMountReadonly()) {
+    return "GIT: git folder is mounted readonly. you can read (git log, diff, status, show) but never write, commit, stage, or push.";
+  }
+  return "GIT: git folder is mounted. never push.";
+}
+
 function buildRuntimeSection(): string {
-  const parts = [
-    readRuntimeFile("runtime.md"),
-    readRuntimeFile(gitMountEnabled() ? "git-yes.md" : "git-no.md"),
-    readRuntimeFile("analysis.md"),
-    readRuntimeFile("style.md"),
-  ];
-  return parts.join("\n\n");
+  return [
+    readRuntimeFile("global.md"),
+    buildGitLine(),
+  ].join("\n\n");
 }
 
 function stripFrontmatterValue(value: string): string {
@@ -109,6 +120,8 @@ interface SkillEntry {
   dir: string;
   body: string;
 }
+
+type RuntimePromptMode = "normal" | "none" | "nudge" | "force";
 
 function activeSkillEntries(
   kind: "auto" | "manual",
@@ -146,6 +159,18 @@ function activeSkillEntries(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function runtimePromptMode(): RuntimePromptMode {
+  const value = (process.env.HVA_RUNTIME_PROMPT_MODE ?? "normal").trim();
+  switch (value) {
+    case "none":
+    case "nudge":
+    case "force":
+      return value;
+    default:
+      return "normal";
+  }
+}
+
 function buildSkillsList(): string {
   const autoSkills = activeSkillEntries("auto");
   const manualSkills = activeSkillEntries("manual");
@@ -177,18 +202,40 @@ function buildSkillActivationGuidance(): string {
   if (autoSkills.length === 0) {
     return "";
   }
-  const skipInject = envFlag("HVA_SKIP_INJECT");
+  const promptMode = runtimePromptMode();
+  if (promptMode === "none") {
+    return "";
+  }
+  const skipAllInjects = envFlag("HVA_SKIP_ALL_INJECTS");
   const softInjectedSkills = csvNames(process.env.HVA_SOFT_INJECT_SKILLS);
   const hardInjectedSkills = csvNames(process.env.HVA_HARD_INJECT_SKILLS);
+  if (promptMode === "nudge") {
+    return [
+      "SKILL ACTIVATION:",
+      "- if a task matches a skill, load it before planning or editing files",
+      "- use `activate_skill` or Pi `read` to load the full SKILL.md first",
+      "- a skill description alone is only a catalog hint",
+    ].join("\n");
+  }
+  if (promptMode === "force") {
+    return [
+      "SKILL ACTIVATION (mandatory):",
+      "- if a task matches a skill, you must load it before planning or editing files",
+      "- a matching skill overrides your default language, framework, and project-layout knowledge",
+      "- do not continue until the matching skill is loaded",
+      "- use `activate_skill` or Pi `read` to load the full SKILL.md first",
+      "- a skill description alone is only a catalog hint",
+    ].join("\n");
+  }
   return [
     "SKILL ACTIVATION (mandatory):",
-    ...(skipInject
-      ? ["- HVA skill injection is disabled by HVA_SKIP_INJECT=1"]
+    ...(skipAllInjects
+      ? ["- HVA skill injection is disabled by HVA_SKIP_ALL_INJECTS=1"]
       : []),
-    ...(!skipInject && hardInjectedSkills.length > 0
+    ...(!skipAllInjects && hardInjectedSkills.length > 0
       ? ["- HVA hard injected skills below are already activated. follow them directly"]
       : []),
-    ...(!skipInject && softInjectedSkills.length > 0
+    ...(!skipAllInjects && softInjectedSkills.length > 0
       ? ["- HVA soft injected skills below are only match hints. load them with activate_skill first"]
       : []),
     "- available skill descriptions are still catalog only for everything else",
@@ -253,6 +300,8 @@ function promptMatchesSkill(prompt: string, skillName: string): boolean {
           text,
         ) &&
         /\breview\b|\bdiff\b|\bcheck\b/.test(text);
+    case "code":
+      return /\bcreate\b|\bwrite\b|\badd\b|\bimplement\b|\bedit\b|\bfix\b|\bmake\b|\brefactor\b/.test(text);
     default:
       return false;
   }
@@ -282,7 +331,7 @@ function renderSkillContent(
 }
 
 function injectedSkillEntries(mode: "soft" | "hard"): SkillEntry[] {
-  if (envFlag("HVA_SKIP_INJECT")) {
+  if (envFlag("HVA_SKIP_ALL_INJECTS")) {
     return [];
   }
   const envValue = mode === "soft"
@@ -322,32 +371,49 @@ function buildHardActivatedSkillSection(prompt: string): string {
 }
 
 function buildInjection(prompt: string): string {
+  const promptMode = runtimePromptMode();
+  if (promptMode === "none") {
+    return "";
+  }
   const skillActivationGuidance = buildSkillActivationGuidance();
   const softActivatedSkills = buildSoftActivatedSkillSection(prompt);
   const hardActivatedSkills = buildHardActivatedSkillSection(prompt);
-  const parts = [
-    "HVA RUNTIME (mandatory):",
-    buildRuntimeSection(),
-  ];
+  const parts: string[] = [];
+  if (promptMode === "normal") {
+    parts.push("HVA RUNTIME (mandatory):", buildRuntimeSection());
+  }
   if (skillActivationGuidance) {
-    parts.push("", skillActivationGuidance);
+    if (parts.length > 0) {
+      parts.push("");
+    }
+    parts.push(skillActivationGuidance);
   }
   if (softActivatedSkills) {
-    parts.push("", softActivatedSkills);
+    if (parts.length > 0) {
+      parts.push("");
+    }
+    parts.push(softActivatedSkills);
   }
   if (hardActivatedSkills) {
-    parts.push("", hardActivatedSkills);
+    if (parts.length > 0) {
+      parts.push("");
+    }
+    parts.push(hardActivatedSkills);
+  }
+  if (parts.length === 0) {
+    return "";
   }
   return `\n${parts.join("\n")}\n`;
 }
 
 function buildHvaDebug(prompt: string, cwd: string): string {
   const trimmedPrompt = prompt.trim();
-  const skipInject = envFlag("HVA_SKIP_INJECT");
+  const skipAllInjects = envFlag("HVA_SKIP_ALL_INJECTS");
   const autoSkills = activeSkillEntries("auto");
   const manualSkills = activeSkillEntries("manual");
   const softConfigured = new Set(csvNames(process.env.HVA_SOFT_INJECT_SKILLS));
   const hardConfigured = new Set(csvNames(process.env.HVA_HARD_INJECT_SKILLS));
+  const dontInjectConfigured = new Set(csvNames(process.env.HVA_DONT_INJECT_SKILLS));
   const softMatched = autoSkills.filter((skill) =>
     softConfigured.has(skill.name) && promptMatchesSkill(trimmedPrompt, skill.name)
   );
@@ -360,7 +426,9 @@ function buildHvaDebug(prompt: string, cwd: string): string {
       ? "soft"
       : hardConfigured.has(skill.name)
       ? "hard"
-      : "none";
+      : dontInjectConfigured.has(skill.name)
+      ? "dont-inject"
+      : "unlisted";
     const matched = trimmedPrompt.length > 0
       ? (promptMatchesSkill(trimmedPrompt, skill.name) ? "yes" : "no")
       : "n/a";
@@ -372,10 +440,12 @@ function buildHvaDebug(prompt: string, cwd: string): string {
     "",
     `cwd: ${cwd}`,
     `active skills dir: ${activeSkillsBaseDir()}`,
-    `git mounted: ${gitMountEnabled() ? "yes" : "no"}`,
-    `skip inject: ${skipInject ? "yes" : "no"}`,
+    `runtime prompt mode: ${runtimePromptMode()}`,
+    `git mounted: ${gitMountEnabled() ? (gitMountReadonly() ? "yes (readonly)" : "yes") : "no"}`,
+    `skip all injects: ${skipAllInjects ? "yes" : "no"}`,
     `soft inject config: ${csvNames(process.env.HVA_SOFT_INJECT_SKILLS).join(", ") || "(none)"}`,
     `hard inject config: ${csvNames(process.env.HVA_HARD_INJECT_SKILLS).join(", ") || "(none)"}`,
+    `dont inject config: ${csvNames(process.env.HVA_DONT_INJECT_SKILLS).join(", ") || "(none)"}`,
     `enabled MCP tools: ${enabledOptionalSkillNames().join(", ") || "(none)"}`,
     "",
     `active auto skills: ${autoSkills.map((skill) => skill.name).join(", ") || "(none)"}`,
@@ -520,8 +590,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event) => {
+    const finalPrompt = `${event.systemPrompt}${buildInjection(event.prompt)}`;
+    if (process.env.HVA_DUMP_SYSTEM_PROMPT) {
+      writeFileSync(process.env.HVA_DUMP_SYSTEM_PROMPT, finalPrompt, "utf-8");
+    }
     return {
-      systemPrompt: `${event.systemPrompt}${buildInjection(event.prompt)}`,
+      systemPrompt: finalPrompt,
     };
   });
 

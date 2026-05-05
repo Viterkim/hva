@@ -64,8 +64,12 @@ hva_csv_contains() {
   return 1
 }
 
-hva_skill_enabled() {
-  hva_csv_contains "$1" "${HVA_SKILLS_ENABLED:-}"
+hva_auto_skill_enabled() {
+  hva_csv_contains "$1" "${HVA_AUTO_SKILLS_ENABLED:-}"
+}
+
+hva_manual_skill_enabled() {
+  hva_csv_contains "$1" "${HVA_MANUAL_SKILLS_ENABLED:-}"
 }
 
 hva_extension_enabled() {
@@ -94,28 +98,28 @@ hva_prepare_active_skills() {
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
     [[ "$skill_name" == "mcp" ]] && continue
-    hva_skill_enabled "$skill_name" || continue
+    hva_auto_skill_enabled "$skill_name" || continue
     hva_link_skill_dir "$skill_dir" "$active_skills_dir" auto "$skill_name"
   done
 
   for skill_dir in "$source_skills_dir"/manual/*; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
-    hva_skill_enabled "$skill_name" || continue
+    hva_manual_skill_enabled "$skill_name" || continue
     hva_link_skill_dir "$skill_dir" "$active_skills_dir" manual "$skill_name"
   done
 
   for skill_dir in "$source_hva_skills_dir"/auto/*; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
-    hva_skill_enabled "$skill_name" || continue
+    hva_auto_skill_enabled "$skill_name" || continue
     hva_link_skill_dir "$skill_dir" "$active_skills_dir" auto "$skill_name"
   done
 
   for skill_dir in "$source_hva_skills_dir"/manual/*; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
-    hva_skill_enabled "$skill_name" || continue
+    hva_manual_skill_enabled "$skill_name" || continue
     hva_link_skill_dir "$skill_dir" "$active_skills_dir" manual "$skill_name"
   done
 }

@@ -6,31 +6,17 @@
 ## Quick start
 
 1. Add `scripts/` to your PATH
-2. Download a `.gguf` model and put it in `models/`
+2. Put a `.gguf` model in `models/`, or leave it empty and HVA downloads the recommended model
 3. Run `hva`
 
 `config/hva-conf.json` is created automatically on first run.
 
-## Recommended Models (Entire model does not have to be in VRAM)
+## Recommended Model (Entire model does not have to be in VRAM)
 
-### Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF
+### Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-GGUF
 
-- Best relative speed/performance/vram usage (try to use 'Q4_K_M' even on low VRAM)
-- Model Page [Link](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF)
-- [i1-IQ3_S download (15.3 GB)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic.i1-IQ3_S.gguf)
-- [i1-Q4_K_M download (21.2 GB)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic.i1-Q4_K_M.gguf)
-- [i1-Q5_K_M download (24.7 GB)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic.i1-Q5_K_M.gguf)
-- [i1-Q6_K download (28.5 GB)](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-uncensored-heretic-i1-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic.i1-Q6_K.gguf)
-
-### Qwen3.6-27B-heretic-heretic2-GGUF
-
-- Not a MoE model (!Use the model above instead!)
-- ONLY USE IF YOU HAVE TOO MUCH VRAM / DON'T CARE ABOUT SPEED (VRAM usage compared to '35B-A3B' is a 2 GB -> 9GB jump) + no 'i1' yet
-- Model Page [Link](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF)
-- [Q4_K_M download (16.5 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q4_K_M.gguf)
-- [Q5_K_M download (19.2 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q5_K_M.gguf)
-- [Q6_K_M download (22.1 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q6_K.gguf)
-- [Q8_0 download (28.6 GB)](https://huggingface.co/mradermacher/Qwen3.6-27B-heretic-heretic2-GGUF/resolve/main/Qwen3.6-27B-heretic-heretic2.Q8_0.gguf)
+- Model page: [mudler/Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-GGUF](https://huggingface.co/mudler/Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-GGUF)
+- Recommended file: [Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-I-Quality.gguf](https://huggingface.co/mudler/Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-GGUF/blob/main/Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-I-Quality.gguf)
 
 ## Shell Completion
 

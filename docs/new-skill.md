@@ -40,9 +40,9 @@ HVA-specific skills live under `skills-hva/`.
 
 ## Injection defaults
 
-- Prefer `HVA_SOFT_INJECT_SKILLS` if a skill needs prompt injection
+- Put each auto skill in exactly one injection bucket: `HVA_SOFT_INJECT_SKILLS`, `HVA_HARD_INJECT_SKILLS`, or `HVA_DONT_INJECT_SKILLS`
 - Use `HVA_HARD_INJECT_SKILLS` only if you tested it and soft is not enough
-- Use `HVA_SKIP_INJECT=1` to compare against no injection
+- Use `HVA_SKIP_ALL_INJECTS=1` to compare against no injection
 
 ## Extensions
 

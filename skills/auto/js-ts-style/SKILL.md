@@ -5,6 +5,7 @@ description: "JavaScript and TypeScript coding style rules. Use when creating, e
 
 # Basics
 
+- no inline comments
 - follow the repo's existing package manager, formatter, linter, and test runner
 - do not guess package versions or APIs. use npm-search when needed
 - prefer the repo's existing patterns over generic rewrites

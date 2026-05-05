@@ -1,0 +1,93 @@
+Skill injection benchmark report
+Date: 2026-05-05
+Branch: wip/skill-injection-bench-and-pins
+
+What was tested
+---------------
+- Three local models from ./models:
+  - Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-I-Balanced.gguf
+  - Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-I-Quality.gguf
+  - Qwen3.6-35B-A3B-uncensored-heretic.i1-Q5_K_M.gguf
+- Injection modes:
+  - no injection: HVA_RUNTIME_PROMPT_MODE=none, HVA_SKIP_ALL_INJECTS=1
+  - soft injection: normal configured skill injection
+  - hard injection: rust-style forced through HVA_HARD_INJECT_SKILLS
+- Main benchmark asked each run to create a Rust project plus bingo-test-file.txt
+  containing exactly 85.
+- Llama was restarted for each benchmark run.
+- Tokens/sec came from internals/healthcheck.sh --debug-cache.
+
+Main 5-run matrix
+-----------------
+Model       Mode   Rust ok   Bingo ok   Eval tok/s   Prompt tok/s
+Balanced    no     5/5       5/5        76.09        546.19
+Balanced    soft   5/5       5/5        76.22        516.23
+Balanced    hard   5/5       5/5        75.32        439.67
+Quality     no     5/5       5/5        92.79        858.41
+Quality     soft   5/5       5/5        94.25        845.04
+Quality     hard   5/5       5/5        90.25        747.43
+Heretic     no     5/5       5/5        80.48        550.52
+Heretic     soft   5/5       5/5        80.56        683.31
+Heretic     hard   4/5       4/5        79.84        499.59
+
+The first hard-injection pass exposed a validator bug: the rust-style skill can
+make a valid Cargo layout with src/lib.rs plus src/bin/*.rs instead of only
+src/main.rs. The script now accepts both project structures. After that fix,
+Balanced and Quality passed hard injection 5/5. Heretic still failed one hard
+run behaviorally, so that is a model/injection result rather than just the old
+test being too strict.
+
+Bigger project check
+--------------------
+Prompt: create a Rust CLI, README, serde dependency, and bingo-test-file.txt.
+
+Model       Rust ok   Bingo ok   Serde seen   README seen   Eval tok/s   Prompt tok/s
+Balanced    yes       yes        yes          yes           74.98        517.07
+Quality     yes       yes        yes          yes           93.08        943.87
+Heretic     yes       yes        yes          yes           78.84        830.76
+
+Tool proof check
+----------------
+Prompt: check the latest serde crate version with tooling, write the proof line
+to crate-version-proof.txt, create a Rust CLI, README, and bingo-test-file.txt.
+
+Model       Rust ok   Bingo ok   Proof file   Proof line                  Eval tok/s   Prompt tok/s
+Balanced    yes       no         yes          serde = "1.0.228" ...       77.66        484.66
+Quality     yes       yes        yes          serde = "1.0.228" ...       91.54        681.25
+Heretic     yes       no         yes          serde = "1.0.228" ...       80.06        336.32
+
+Winner / recommendation
+-----------------------
+Use the Quality model for this skill/tooling path. It was the only model that:
+- passed no/soft/hard injection 5/5,
+- passed the bigger project check,
+- passed the stricter tool-proof run including the bingo sentinel,
+- had the best eval throughput, around 90-94 tok/s in the matrix.
+
+Balanced is stable on the simple matrix but slower and missed the bingo sentinel
+in the stricter tool-proof prompt. Heretic is useful for comparison but less
+reliable here: hard injection was 4/5, and it also missed bingo in the stricter
+tool-proof prompt.
+
+Bugs fixed while testing
+------------------------
+- check-system-prompt now verifies the actual project structure, not just that
+  Pi returned text.
+- check-system-prompt now verifies bingo-test-file.txt contains exactly 85.
+- check-system-prompt now supports custom prompt templates, expected checks,
+  fail-fast off for full benchmark matrices, kept dirs for inspection, and
+  llama health/tokens-per-second output.
+- llama restart/stop now waits for Docker --rm container removal before the
+  next start, fixing a real name-race seen during model restarts.
+- hva --stop now stops and removes HVA-managed helper containers.
+- Generated benchmark project folders were removed after the runs.
+- Version pins were updated and internals/check-versions.sh reports all ok.
+
+Log files
+---------
+The raw logs and TSV summaries are under .hva-state/model-checks/:
+- injection-matrix-summary.tsv
+- injection-matrix-summary-rerun.tsv
+- heretic-failfast0-summary.tsv
+- big-project-summary.tsv
+- tool-proof-summary.tsv

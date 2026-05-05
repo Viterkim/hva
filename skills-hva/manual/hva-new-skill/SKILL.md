@@ -13,7 +13,7 @@ If the workspace does not have `scripts/hva`, `skills`, and `pi/extensions`, say
 Pick the right tier:
 
 - Needs to run every turn: extension in `pi/extensions/`
-- Prompt-only HVA runtime guidance: markdown in `hva-runtime/`, injected from `pi/extensions/agent-guidance.ts`
+- Prompt-only HVA runtime guidance: `hva-runtime/global.md`, injected from `pi/extensions/agent-guidance.ts`
 - Context relevant, LLM decides when to use it: normal skill in `skills/`
 - Only when explicitly asked: skill with `disable-model-invocation: true`
 
@@ -62,10 +62,11 @@ Read `docs/skills-basics.md` first.
 - full instructions matter only after activation
 - weak local models often do not load skills reliably on their own
 - `/skill:name` is the manual force path
-- `HVA_SOFT_INJECT_SKILLS` adds a match hint only and is the normal default
+- `HVA_SOFT_INJECT_SKILLS` adds a match hint only
 - `HVA_HARD_INJECT_SKILLS` injects the full skill body. use it only if there is a tested reason
-- `HVA_SKIP_INJECT=1` disables both inject lists
-- do not put the same skill in both lists
+- `HVA_DONT_INJECT_SKILLS` explicitly keeps an auto skill out of prompt injection
+- `HVA_SKIP_ALL_INJECTS=1` disables both inject lists
+- do not put the same skill in more than one injection list
 - other auto skills should load through `activate_skill`
 
 ## SKILL.md size
@@ -84,12 +85,13 @@ Don't hardcode versions, dates, or anything that will rot. Use tools (rust-docs,
 
 ## After creating or renaming
 
-- Add to `HVA_SKILLS_ENABLED` or `HVA_SKILLS_DISABLED` in `config/hva-conf.json.sample` (validation rejects unknown skills).
+- Add auto skills to `HVA_AUTO_SKILLS_ENABLED` or `HVA_AUTO_SKILLS_DISABLED`.
+- Add manual skills to `HVA_MANUAL_SKILLS_ENABLED` or `HVA_MANUAL_SKILLS_DISABLED`.
 - If manual skill: add `/skill:name` entry to `readme.md`.
 - If you add, remove, or rename a manual skill, check `pi/extensions/agent-guidance.ts` too.
-- If the skill should participate in HVA prompt injection, prefer `HVA_SOFT_INJECT_SKILLS`.
+- Put each auto skill in exactly one of `HVA_SOFT_INJECT_SKILLS`, `HVA_HARD_INJECT_SKILLS`, or `HVA_DONT_INJECT_SKILLS`.
 - Only use `HVA_HARD_INJECT_SKILLS` if you tested that soft is not enough and hard really helps.
-- If you want to compare behavior with injection fully off, set `HVA_SKIP_INJECT=1`.
+- If you want to compare behavior with injection fully off, set `HVA_SKIP_ALL_INJECTS=1`.
 
 ## Creating an extension
 

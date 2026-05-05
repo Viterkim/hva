@@ -31,6 +31,7 @@ LLAMA_AUTOFIT_TOKENS
 HVA_MAX_OUTPUT_TOKENS
 LLAMA_ENABLE_THINKING
 LLAMA_PRESERVE_THINKING
+LLAMA_CHAT_TEMPLATE_FILE
 LLAMA_TEMPERATURE
 LLAMA_TOP_P
 LLAMA_TOP_K
@@ -44,8 +45,11 @@ Tooling and mounts:
 ```text
 HVA_MCP_ENABLED
 HVA_MCP_DISABLED
-HVA_SKILLS_ENABLED
-HVA_SKILLS_DISABLED
+HVA_RUNTIME_PROMPT_MODE
+HVA_AUTO_SKILLS_ENABLED
+HVA_AUTO_SKILLS_DISABLED
+HVA_MANUAL_SKILLS_ENABLED
+HVA_MANUAL_SKILLS_DISABLED
 SEARXNG_URL
 HVA_LOAD_SECRETS
 HVA_MOUNT_GIT
@@ -58,6 +62,17 @@ HVA_CSHARP
 ```
 
 `HVA_CSHARP=true` only matters when building the dev image.
+
+`LLAMA_CHAT_TEMPLATE_FILE` is optional. When set, it must name a file under
+`internals/`, for example `qwen3-chat-template.jinja`, and HVA passes it to the
+llama.cpp server with `--chat-template-file`.
+
+`HVA_RUNTIME_PROMPT_MODE` values:
+
+- `normal` - use HVA's normal runtime guidance
+- `none` - inject no HVA prompt guidance
+- `nudge` - inject only a small skill-first reminder
+- `force` - inject stronger skill-first wording for experiments
 
 ## One-shot host env overrides
 

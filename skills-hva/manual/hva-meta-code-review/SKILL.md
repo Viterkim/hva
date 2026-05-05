@@ -26,8 +26,8 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 
 ## New skill
 
-- Auto-discovered by `env_known_skill_keys()` in `env-validate.sh` via directory name — no list to update there.
-- Must appear in either `HVA_SKILLS_ENABLED` or `HVA_SKILLS_DISABLED` in `config/hva-conf.json.sample` (validation rejects unknown entries).
+- Auto/manual skill names are discovered from directories in `env-validate.sh`.
+- Must appear in the matching auto/manual enabled or disabled config list.
 - If manual skill: does it need a `/skill:name` entry in `readme.md`?
 - If it references HVA-specific paths (`/hva`, `/hva-state`, `/workspace`), are those correct?
 - Does HVA's skill activation path still load it properly, not just catalog it?
@@ -64,7 +64,7 @@ Go through each section that applies. Note yes/no and what you found. Skip secti
 - Does disabling it actually skip the thing, not just skip the warning?
 - Does the config sample default match what a new user should get?
 - For CSV enable/disable lists: every known entry listed exactly once, never in both.
-- For skill injection: does `HVA_SKIP_INJECT=1` still override both soft and hard lists?
+- For skill injection: is every auto skill in exactly one of soft, hard, or dont-inject, and does `HVA_SKIP_ALL_INJECTS=1` override both inject lists?
 
 ## Value flow — trace a new value end to end
 

@@ -5,6 +5,7 @@ description: "Rust coding style and preferred crate rules. Use when creating, ed
 
 # Basics
 
+- no inline comments
 - `format!("{v}")` not `format!("{}", v)`
 - import at the top level — `use tokio::fs` not inline `tokio::fs::`, `info!("{v}")` not `tracing::info!()`
 - don't suggest alternative crates over what the project already uses
